@@ -1,5 +1,7 @@
--- Trainer App schema — lives in the SHARED cookbook Supabase project (SPEC §9, decided).
--- Additive only: creates new tables, touches nothing the cookbook may already have.
+-- Trainer App schema — hosted in the shared Supabase project (SPEC §9).
+-- DECIDED 2026-07-22: host project is "Vinyl Database" (uaqvqvrflzxulixdrmna);
+-- applied there as migration trainer_app_shared_schema_v1.
+-- Additive only: namespaced tables, touches nothing else in the project.
 -- Two groups:
 --   trainer_*  — Trainer App's own data (logs, plans, scores)
 --   shared_*   — the Cookbook Sync Module contract (SPEC §5.5), read/written by BOTH apps

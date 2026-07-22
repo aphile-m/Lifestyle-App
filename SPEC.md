@@ -443,11 +443,11 @@ multi-user (family) support if wanted.
   bands, ankle weights, walker/treadmill + street running + bodyweight preference.
 - Session budget: **60 min default** including warm-up and cool-down.
 - Measurement cadences: tape 4-weekly; fitness & strength benchmarks 8-weekly (§3.4).
-- Supabase reality check: no cookbook project exists yet (cookbook is local-only) and the
-  org's free tier is at its 2-project cap — host project choice pending (see §13).
+- Supabase host (decided): the shared `trainer_*`/`shared_*` schema lives in the existing
+  **"Vinyl Database"** project (free tier at its 2-project cap; tables are namespaced so
+  nothing collides). Applied as migration `trainer_app_shared_schema_v1` on 2026-07-22.
 
 ## 13. Open questions
 
-1. Which Supabase project hosts the shared schema: an existing project (tables are fully
-   namespaced `trainer_*`/`shared_*`, zero collision), or pause/upgrade to create a
-   dedicated "Aphile Lifestyle" project?
+None — spec is build-ready. New questions get logged here as they surface during
+implementation.

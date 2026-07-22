@@ -5,7 +5,7 @@ import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, trendWeight, WEIGHTS } from './score.js';
 import { askVic } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
-import { syncReady, signedIn, signUp, signIn, pushAll, pushProfile } from './sync.js';
+import { syncReady, signedIn, signUp, signIn, pushAll, pushProfile, syncConfig } from './sync.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
 
@@ -524,8 +524,9 @@ function apiKeySheet() {
 
 function cloudSheet() {
   const s = settings.load();
-  const url = el('input', { placeholder: 'https://xxxx.supabase.co', value: s.supabaseUrl || '' });
-  const key = el('input', { type: 'password', placeholder: 'anon / publishable key', value: s.supabaseAnonKey || '' });
+  const cfg = syncConfig();
+  const url = el('input', { placeholder: 'https://xxxx.supabase.co', value: cfg.url });
+  const key = el('input', { type: 'password', placeholder: 'anon / publishable key', value: cfg.anonKey });
   const email = el('input', { type: 'email', placeholder: 'you@example.com', value: s.syncEmail || 'aphilem@gmail.com' });
   const pass = el('input', { type: 'password', placeholder: 'password (min 6 chars)' });
   const status = el('p', { class: 'muted', style: 'margin-top:10px' },

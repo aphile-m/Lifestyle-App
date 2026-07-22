@@ -5,11 +5,16 @@
 
 import { settings, logs } from './store.js';
 
+/* Shared project defaults (host: "Vinyl Database" project, decided 2026-07-22).
+   The publishable key is safe to ship client-side — RLS guards every row. */
+const DEFAULT_URL = 'https://uaqvqvrflzxulixdrmna.supabase.co';
+const DEFAULT_KEY = 'sb_publishable_o1xfAQwaiVwuPkZOWgZfFw_2AsUlCOz';
+
 export function syncConfig() {
   const s = settings.load();
   return {
-    url: (s.supabaseUrl || '').replace(/\/$/, ''),
-    anonKey: s.supabaseAnonKey || '',
+    url: (s.supabaseUrl || DEFAULT_URL).replace(/\/$/, ''),
+    anonKey: s.supabaseAnonKey || DEFAULT_KEY,
     session: s.supabaseSession || null, // {access_token, refresh_token, expires_at, user_id}
   };
 }
