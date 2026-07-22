@@ -9,6 +9,7 @@ import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, syn
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, importActivities } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney } from './onboarding.js';
+import { vicAvatar } from './vic-avatar.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
 
@@ -63,7 +64,11 @@ async function pushWeeklyScore(aggregate, pillars) {
 
 /* ---------------- Today ---------------- */
 async function today(root) {
-  root.append(el('h1', { class: 'h-page' }, todayGreeting()));
+  root.append(el('div', { class: 'hey-row' },
+    el('div', {},
+      el('h1', { class: 'hey' }, `Hey ${settings.profile.name}! 👋`),
+      el('p', { class: 'hey-sub' }, todayGreeting())),
+    vicAvatar(5)));
 
   // Lifestyle Score card
   const { aggregate, pillars } = await weeklyScore();
@@ -117,7 +122,7 @@ async function today(root) {
 
 function todayGreeting() {
   const h = new Date().getHours();
-  return h < 12 ? 'Morning. Let’s move.' : h < 18 ? 'Afternoon check.' : 'Evening review.';
+  return h < 12 ? 'Ready to crush today?' : h < 18 ? 'How’s the day tracking?' : 'Time for the evening review.';
 }
 
 function checkinForm() {
@@ -160,7 +165,11 @@ function ratingRow(label) {
 
 /* ---------------- Coach (Vic) ---------------- */
 async function coach(root) {
-  root.append(el('h1', { class: 'h-page' }, 'Vic'));
+  root.append(el('div', { class: 'hey-row', style: 'margin-bottom:8px' },
+    el('div', {},
+      el('h1', { class: 'hey' }, 'Vic'),
+      el('p', { class: 'hey-sub', style: 'margin-bottom:0' }, '● AI Personal Trainer')),
+    vicAvatar(5)));
   const chat = el('div', { class: 'chat' });
   root.append(chat);
 

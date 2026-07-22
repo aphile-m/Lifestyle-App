@@ -9,6 +9,7 @@ import { settings, logs, defaultProfile } from './store.js';
 import { signedIn } from './sync.js';
 import { stravaConnected } from './strava.js';
 import { latestMeasurement, latestBenchmark, activePlan, generatePlan } from './plan.js';
+import { vicAvatar } from './vic-avatar.js';
 
 let deps = null;   // sheets + exit callback injected by app.js (avoids an import cycle)
 let idx = 0;
@@ -50,7 +51,7 @@ async function gates() {
 
 /* ---------- building blocks ---------- */
 const vicSays = (...lines) => el('div', { class: 'vic-bubble' },
-  el('div', { class: 'vic-face' }, '🥊'),
+  el('div', { class: 'vic-face' }, vicAvatar(3, 'still')),
   el('div', {}, ...lines.map(l => el('p', {}, l))));
 
 function checkRow(done, label, sub, btnLabel, onclick) {
@@ -66,7 +67,7 @@ function checkRow(done, label, sub, btnLabel, onclick) {
 const PAGES = [
   { // 0 — welcome splash
     render: async () => el('div', { class: 'j-page j-center' },
-      el('div', { class: 'j-hero' }, '🥊'),
+      el('div', { class: 'vic-hero' }, vicAvatar(9)),
       el('h1', { class: 'j-title' }, 'Trainer App'),
       el('p', { class: 'j-tag' }, 'Your coach. Your kitchen. Your watch. One score.'),
       el('p', { class: 'muted', style: 'margin-top:14px;max-width:300px' },
@@ -99,7 +100,8 @@ const PAGES = [
   },
   { // 3 — meet Vic
     render: async () => el('div', { class: 'j-page' },
-      el('h1', { class: 'j-title' }, 'Meet Vic'),
+      el('div', { class: 'vic-hero' }, vicAvatar(7)),
+      el('h1', { class: 'j-title', style: 'text-align:center' }, 'Meet Vic'),
       vicSays(
         'I’m Vic. Here’s how this works: sustainable weight loss, measured properly, no crash diets, no guesswork.',
         'I’ll hear any obstacle out once — then we find the smaller version of the workout, not the excuse. Sore knees? We swap squats. Busy day? Thirty minutes. We don’t skip.',
@@ -193,7 +195,7 @@ const PAGES = [
         catch (e) { planBtn.disabled = false; planBtn.textContent = 'Try again — ' + e.message.slice(0, 40); }
       });
       return el('div', { class: 'j-page j-center' },
-        el('div', { class: 'j-hero' }, '🎉'),
+        el('div', { class: 'vic-hero' }, vicAvatar(8)),
         el('h1', { class: 'j-title' }, 'You’re in'),
         vicSays(
           'Baseline captured. That took discipline — first tick earned.',
