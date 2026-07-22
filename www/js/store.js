@@ -24,16 +24,19 @@ export function defaultProfile() {
     watch: 'Garmin Vivoactive 4',
     tone: 'balanced', // gentle ↔ direct dial; Vic's core persona is constant
     injuries: '',
-    equipment: '',
+    equipment: 'dumbbells, bench, Swiss ball, stepper, skipping rope, resistance bands, ankle weights, walker/treadmill',
+    modalities: 'street running, bodyweight workouts',
+    sessionMinutes: 60, // includes warm-up and cool-down (SPEC §2.2)
     baselineStart: null, // ISO date the calibration fortnight began
   };
 }
 
 /* ---------- IndexedDB ---------- */
 const DB_NAME = 'trainer';
-const DB_VER = 1;
+const DB_VER = 2;
 // One store per log type; all rows: { id, ts (ISO), ...payload }
-const STORES = ['weights', 'foods', 'workouts', 'journal', 'checkins', 'scores', 'chat'];
+const STORES = ['weights', 'foods', 'workouts', 'journal', 'checkins', 'scores', 'chat',
+  'measurements', 'benchmarks', 'plans'];
 
 let dbp = null;
 function db() {
@@ -66,6 +69,9 @@ function tx(store, mode, fn) {
 export const logs = {
   add(store, payload) {
     return tx(store, 'readwrite', os => os.add({ ts: new Date().toISOString(), ...payload }));
+  },
+  put(store, row) { // update an existing row (must include its id)
+    return tx(store, 'readwrite', os => os.put(row));
   },
   all(store) {
     return tx(store, 'readonly', os => os.getAll()).then(r => r || []);

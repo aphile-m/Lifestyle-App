@@ -88,7 +88,28 @@ create table if not exists trainer_plans (           -- periodised training plan
   user_id     uuid not null default auth.uid(),
   created_at  timestamptz not null default now(),
   active      boolean not null default true,
-  plan        jsonb not null                         -- mesocycle -> weeks -> sessions
+  month_theme text,                                  -- mesocycle theme, queryable
+  start_date  date,
+  plan        jsonb not null                         -- weeks[] -> {theme, sessions[] -> WOD blocks}
+);
+
+create table if not exists trainer_measurements (    -- tape measurements, 4-weekly (SPEC §3.4)
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid(),
+  ts          timestamptz not null default now(),
+  waist_cm    numeric(5,1), hips_cm numeric(5,1), chest_cm numeric(5,1),
+  arm_cm      numeric(5,1), thigh_cm numeric(5,1)
+);
+
+create table if not exists trainer_benchmarks (      -- fitness/strength tests, 8-weekly (SPEC §3.4)
+  id          uuid primary key default gen_random_uuid(),
+  user_id     uuid not null default auth.uid(),
+  ts          timestamptz not null default now(),
+  resting_hr  int,
+  run_1600m_sec int,                                 -- timed 1.6 km run (or brisk walk test)
+  pushups_max int,
+  plank_sec   int,
+  goblet_squat_reps int, goblet_squat_kg numeric(4,1)
 );
 
 -- ---------- Cookbook Sync Module contract (SPEC §5.5) ----------
@@ -148,7 +169,7 @@ begin
   foreach t in array array[
     'trainer_profile','trainer_weights','trainer_food_logs','trainer_workouts',
     'trainer_checkins','trainer_journal_tags','trainer_daily_metrics','trainer_scores',
-    'trainer_plans','shared_recipes','shared_pantry_items','shared_shopping_items',
+    'trainer_plans','trainer_measurements','trainer_benchmarks','shared_recipes','shared_pantry_items','shared_shopping_items',
     'shared_meal_plans','shared_cooked_events'
   ] loop
     execute format('alter table %I enable row level security', t);

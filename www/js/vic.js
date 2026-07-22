@@ -4,6 +4,7 @@
 
 import { settings, logs } from './store.js';
 import { weeklyScore } from './score.js';
+import { activePlan, sessionForToday, latestMeasurement, latestBenchmark } from './plan.js';
 
 const MODEL = 'claude-opus-4-8';
 
@@ -25,8 +26,14 @@ PERSONA — non-negotiable:
 
 GOAL: ${profile.goal}. Sustainable target rate: ${profile.targetRate}. Watch: ${profile.watch}.
 ${profile.injuries ? `Injuries/limits: ${profile.injuries}.` : ''}
-${profile.equipment ? `Equipment: ${profile.equipment}.` : ''}
+Equipment: ${profile.equipment}. Preferred modalities: ${profile.modalities}.
+Session budget: ${profile.sessionMinutes} min including warm-up and cool-down.
 Tone dial: ${profile.tone}.
+
+PLAN GUIDANCE: you coach through a structured plan — monthly theme, weekly focus, workout
+of the day (shown in the data below when one is active). Frame advice against the current
+week's focus. If no plan exists yet, steer toward the measure-and-benchmark session first
+(Me tab), then plan generation (Train tab) — measurement before prescription, always.
 
 CURRENT DATA (real, from the app — the only personal stats you may cite):
 ${context}
@@ -52,6 +59,19 @@ async function buildContext() {
   if (journal.length) {
     const tags = journal.flatMap(j => j.tags || []);
     lines.push(`Journal tags last 7d: ${tags.join(', ') || 'none'}.`);
+  }
+  const [meas, bench, plan] = await Promise.all([latestMeasurement(), latestBenchmark(), activePlan()]);
+  if (meas) lines.push(`Latest tape measurements: ${JSON.stringify({ waist: meas.waist, hips: meas.hips, chest: meas.chest, arm: meas.arm, thigh: meas.thigh })} (taken ${meas.ts.slice(0, 10)}).`);
+  if (bench) lines.push(`Latest benchmarks: ${JSON.stringify({ restingHr: bench.restingHr, run1600mSec: bench.runSec, pushups: bench.pushups, plankSec: bench.plankSec, gobletSquat: bench.squatReps })} (taken ${bench.ts.slice(0, 10)}).`);
+  if (!meas && !bench) lines.push('No measurements or benchmarks yet — the measuring session has not happened.');
+  if (plan) {
+    const t = sessionForToday(plan.plan);
+    lines.push(`Active plan: month theme "${plan.plan.month_theme}", week ${t.week ? t.week.week : '-'} focus "${t.week ? t.week.theme : '-'}".`);
+    if (t.status === 'today') lines.push(`Today's session: ${t.session.title} (${t.session.type}, ${t.session.duration_min} min).`);
+    else if (t.status === 'rest') lines.push('Today is a rest day on the plan.');
+    else if (t.status === 'starts') lines.push(`Plan starts ${t.when}.`);
+  } else {
+    lines.push('No training plan active yet.');
   }
   return lines.join('\n');
 }

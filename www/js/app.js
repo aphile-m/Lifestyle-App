@@ -1,9 +1,11 @@
-/* app.js — shell, tab router, and v0 screens (see SPEC.md §8) */
+/* app.js — shell, tab router, and screens (see SPEC.md §8) */
 
 import { $, el, esc, scoreRing, sheet, toast } from './ui.js';
 import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, trendWeight, WEIGHTS } from './score.js';
 import { askVic } from './vic.js';
+import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
+import { syncReady, signedIn, signUp, signIn, pushAll, pushProfile } from './sync.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
 
@@ -41,6 +43,23 @@ async function today(root) {
           'Calibration in progress — log normally for two weeks to set your honest baseline. Vic explains why in the Coach tab.')
       : null));
 
+  // Today's session (from the active plan)
+  const plan = await activePlan();
+  if (plan) {
+    const t = sessionForToday(plan.plan);
+    if (t.status === 'today') {
+      root.append(el('div', { class: 'card' },
+        el('h2', {}, `Today — week ${t.week.week}: ${t.week.theme}`),
+        el('p', { style: 'font-weight:700;font-size:18px' }, t.session.title),
+        el('p', { class: 'muted' }, `${t.session.type} · ${t.session.duration_min} min all-in`),
+        el('button', { class: 'btn', style: 'margin-top:10px', onclick: () => player(t.session, t.week) }, 'Start session')));
+    } else if (t.status === 'rest') {
+      root.append(el('div', { class: 'card' },
+        el('h2', {}, `Week ${t.week.week}: ${t.week.theme}`),
+        el('p', {}, 'Rest day on the plan. Recovery is training too.')));
+    }
+  }
+
   // Quick log
   root.append(el('div', { class: 'card' },
     el('h2', {}, 'Quick log'),
@@ -76,6 +95,7 @@ function checkinForm() {
         await logs.add('journal', { tags: [...tags] });
         await logs.add('checkins', { sleep: sleep.value(), energy: energy.value() });
         toast('Checked in. Vic sees this.');
+        trySync();
         go('today');
       },
     }, 'Save check-in'));
@@ -109,8 +129,8 @@ async function coach(root) {
   if (!stored.length) {
     bubble(chat, 'vic',
       'I’m Vic. One goal on the board: sustainable weight loss, measured properly. ' +
-      'First two weeks are calibration — live normally, log honestly, and we’ll know your real starting line. ' +
-      'No excuses after that, but no guesswork either. What’s on your mind?');
+      'Step one is the measuring session — tape and benchmarks, Me tab. Then I build your plan: ' +
+      'a theme for the month, a focus for each week, a workout for the day. No prescriptions before measurement. What’s on your mind?');
   }
 
   const input = el('input', { placeholder: 'Talk to Vic…', enterkeyhint: 'send' });
@@ -150,12 +170,182 @@ function bubble(chat, cls, text) {
 /* ---------------- Train ---------------- */
 async function train(root) {
   root.append(el('h1', { class: 'h-page' }, 'Train'));
-  const workouts = await logs.recent('workouts', 7);
+
+  const [meas, bench, plan] = await Promise.all([latestMeasurement(), latestBenchmark(), activePlan()]);
+
+  // Gate 1: measure before prescription (SPEC §2.4/§3.4)
+  if (!meas && !bench) {
+    root.append(el('div', { class: 'card' },
+      el('h2', {}, 'First: the measuring session'),
+      el('p', {}, 'Vic doesn’t prescribe before he measures. Take your tape measurements and benchmarks in the Me tab — then the plan gets built from where you actually are.'),
+      el('button', { class: 'btn', style: 'margin-top:10px', onclick: () => go('me') }, 'Go measure')));
+    return;
+  }
+
+  // Gate 2: no plan yet → generate
+  if (!plan) {
+    const btn = el('button', { class: 'btn', style: 'margin-top:10px' }, 'Vic, build my plan');
+    btn.addEventListener('click', async () => {
+      if (!settings.apiKey) { apiKeySheet(); return; }
+      btn.disabled = true; btn.textContent = 'Vic is planning… (~30s)';
+      try {
+        await generatePlan();
+        toast('Plan ready.');
+        trySync();
+        go('train');
+      } catch (e) {
+        btn.disabled = false; btn.textContent = 'Vic, build my plan';
+        toast(e.message === 'NO_BASELINE' ? 'Measure first — Me tab.' : e.message);
+      }
+    });
+    root.append(el('div', { class: 'card' },
+      el('h2', {}, 'Ready to plan'),
+      el('p', {}, 'Measurements are in. Vic will write a 4-week block: a monthly theme, a focus per week (week 4 deloads), and workouts of the day built from your equipment within your session budget.'),
+      btn));
+    return;
+  }
+
+  // Active plan view: month theme → weekly focus → WOD
+  const p = plan.plan;
+  const t = sessionForToday(p);
   root.append(el('div', { class: 'card' },
-    el('h2', {}, 'This week'),
-    el('p', {}, `${workouts.length} session${workouts.length === 1 ? '' : 's'} logged.`),
-    el('p', { class: 'muted' }, 'Plan generation, the workout player, and Strava sync land next (SPEC §4). For now, log sessions so calibration counts them.'),
-    el('button', { class: 'btn', style: 'margin-top:10px', onclick: logWorkoutSheet }, 'Log a session')));
+    el('h2', {}, 'This month'),
+    el('p', { style: 'font-weight:700;font-size:18px' }, p.month_theme),
+    p.rationale ? el('p', { class: 'muted', style: 'margin-top:6px' }, p.rationale) : null,
+    el('p', { class: 'muted', style: 'margin-top:6px' }, `Started ${p.start_date}`)));
+
+  if (t.status === 'today') {
+    root.append(wodCard(t.week, t.session, true));
+  } else if (t.status === 'rest') {
+    root.append(el('div', { class: 'card' },
+      el('h2', {}, `Week ${t.week.week} — ${t.week.theme}`),
+      el('p', {}, t.next ? `Rest day. Next up: ${t.next.title}.` : 'Rest day — the week is done. Recovery is training too.')));
+  } else if (t.status === 'starts') {
+    root.append(el('div', { class: 'card' }, el('h2', {}, 'Starts soon'),
+      el('p', {}, `The block begins ${t.when}. Week 1: ${t.week.theme}`)));
+  } else {
+    root.append(el('div', { class: 'card' }, el('h2', {}, 'Block complete'),
+      el('p', {}, 'Four weeks done — time to re-measure, re-benchmark (Me tab) and let Vic write the next block.')));
+  }
+
+  // Full week outline
+  if (t.week) {
+    root.append(el('div', { class: 'card' },
+      el('h2', {}, `Week ${t.week.week} outline`),
+      ...(t.week.sessions || []).map(s => el('p', { style: 'margin:4px 0' },
+        `${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][s.dow]} — ${s.title} (${s.duration_min} min)`))));
+  }
+
+  root.append(el('button', {
+    class: 'btn ghost', onclick: async () => {
+      if (!confirm('Replace the current plan with a freshly generated block?')) return;
+      go('train');
+    },
+  }, 'Plan options'), el('p', { class: 'muted', style: 'margin-top:8px' },
+    'To re-plan, re-measure in Me first — Vic rebuilds from fresh numbers after each block.'));
+}
+
+function wodCard(week, session, startable) {
+  return el('div', { class: 'card' },
+    el('h2', {}, `Today · week ${week.week} — ${week.theme}`),
+    el('p', { style: 'font-weight:700;font-size:18px' }, session.title),
+    el('p', { class: 'muted' }, `${session.type} · ${session.duration_min} min including warm-up & cool-down`),
+    ...(session.blocks || []).map(b => el('p', { class: 'muted', style: 'margin-top:4px' },
+      `${b.name} (${b.minutes} min): ${(b.exercises || []).map(x => x.name).join(', ')}`)),
+    startable ? el('button', { class: 'btn', style: 'margin-top:10px', onclick: () => player(session, week) }, 'Start session') : null);
+}
+
+/* ---------------- Workout player ---------------- */
+function player(session, week) {
+  const root = $('#screen');
+  root.replaceChildren();
+  root.append(el('h1', { class: 'h-page' }, session.title),
+    el('p', { class: 'muted', style: 'margin-top:-10px;margin-bottom:14px' },
+      `Week ${week.week} — ${week.theme} · budget ${session.duration_min} min`));
+
+  for (const block of (session.blocks || [])) {
+    const card = el('div', { class: 'card' }, el('h2', {}, `${block.name} · ${block.minutes} min`));
+    for (const ex of (block.exercises || [])) {
+      const sets = Math.max(1, ex.sets || 1);
+      const chips = Array.from({ length: sets }, (_, i) => el('button', {
+        class: 'chip', onclick: e => e.target.classList.toggle('on'),
+      }, `Set ${i + 1}`));
+      card.append(el('div', { style: 'margin:10px 0 4px' },
+        el('div', { class: 'row' },
+          el('b', { class: 'grow' }, ex.name),
+          el('span', { class: 'muted' }, ex.reps ? `${sets}×${ex.reps}` : '')),
+        el('p', { class: 'muted', style: 'font-size:13px' },
+          [ex.equipment, ex.note].filter(Boolean).join(' · ')),
+        el('div', { class: 'chips', style: 'margin-top:6px' }, ...chips,
+          ex.rest_sec ? restButton(ex.rest_sec) : null)));
+    }
+    root.append(card);
+  }
+
+  root.append(el('button', {
+    class: 'btn', style: 'width:100%', onclick: () => finishSheet(session),
+  }, 'Finish session'), el('button', {
+    class: 'btn ghost', style: 'width:100%;margin-top:8px', onclick: () => go('train'),
+  }, 'Back (nothing saved)'));
+}
+
+function restButton(sec) {
+  const btn = el('button', { class: 'chip' }, `⏱ Rest ${sec}s`);
+  let timer = null;
+  btn.addEventListener('click', () => {
+    if (timer) { clearInterval(timer); timer = null; btn.textContent = `⏱ Rest ${sec}s`; return; }
+    let left = sec;
+    btn.classList.add('on');
+    timer = setInterval(() => {
+      left -= 1;
+      btn.textContent = `⏱ ${left}s`;
+      if (left <= 0) {
+        clearInterval(timer); timer = null;
+        btn.classList.remove('on');
+        btn.textContent = `⏱ Rest ${sec}s`;
+        beep();
+      }
+    }, 1000);
+  });
+  return btn;
+}
+
+function beep() {
+  try {
+    const ctx = new (window.AudioContext || window.webkitAudioContext)();
+    const o = ctx.createOscillator(), g = ctx.createGain();
+    o.connect(g); g.connect(ctx.destination);
+    o.frequency.value = 880; g.gain.value = 0.15;
+    o.start(); o.stop(ctx.currentTime + 0.35);
+  } catch {}
+  if (navigator.vibrate) navigator.vibrate(200);
+}
+
+function finishSheet(session) {
+  const rpe = ratingRow10();
+  const close = sheet('How hard was that?',
+    rpe.row,
+    el('button', {
+      class: 'btn', style: 'margin-top:12px', onclick: async () => {
+        await logs.add('workouts', { desc: session.title, rpe: rpe.value(), planned: true, detail: { type: session.type } });
+        close(); toast('Session logged. Vic sees it.');
+        trySync();
+        go('today');
+      },
+    }, 'Save session'));
+}
+
+function ratingRow10() {
+  let val = 6;
+  const btns = Array.from({ length: 10 }, (_, i) => i + 1).map(n => el('button', {
+    class: 'chip' + (n === 6 ? ' on' : ''),
+    onclick: e => {
+      val = n;
+      [...e.target.parentNode.children].forEach(c => c.classList.remove('on'));
+      e.target.classList.add('on');
+    },
+  }, String(n)));
+  return { row: el('div', { class: 'chips' }, ...btns), value: () => val };
 }
 
 /* ---------------- Fuel ---------------- */
@@ -172,7 +362,9 @@ async function fuel(root) {
 /* ---------------- Me ---------------- */
 async function me(root) {
   root.append(el('h1', { class: 'h-page' }, 'Me'));
-  const weights = await logs.recent('weights', 28);
+  const [weights, meas, bench] = await Promise.all([
+    logs.recent('weights', 28), latestMeasurement(), latestBenchmark(),
+  ]);
   const trend = trendWeight(weights);
   root.append(el('div', { class: 'card' },
     el('h2', {}, 'Trend weight (7-day EMA)'),
@@ -180,18 +372,42 @@ async function me(root) {
     el('p', { class: 'muted' }, 'The trend is the headline — never the daily spike.'),
     el('button', { class: 'btn ghost', style: 'margin-top:10px', onclick: logWeightSheet }, 'Log weight')));
 
+  // Measurements & benchmarks (SPEC §3.4: tape 4-weekly, benchmarks 8-weekly)
+  const measDue = !meas || daysSince(meas) >= 28;
+  const benchDue = !bench || daysSince(bench) >= 56;
+  root.append(el('div', { class: 'card' },
+    el('h2', {}, 'Measurements & benchmarks'),
+    meas
+      ? el('p', {}, `Tape: waist ${meas.waist ?? '–'} · hips ${meas.hips ?? '–'} · chest ${meas.chest ?? '–'} cm (${daysSince(meas)}d ago)`)
+      : el('p', { class: 'muted' }, 'No tape measurements yet — this gates your first plan.'),
+    bench
+      ? el('p', {}, `Benchmarks: ${bench.pushups ?? '–'} push-ups · plank ${bench.plankSec ?? '–'}s · 1.6 km ${bench.runSec ? fmtMinSec(bench.runSec) : '–'} (${daysSince(bench)}d ago)`)
+      : el('p', { class: 'muted' }, 'No fitness/strength benchmarks yet.'),
+    (measDue || benchDue) ? el('p', { class: 'did-you-know' },
+      measDue && benchDue ? 'Measuring session due — tape and benchmarks.' :
+      measDue ? 'Tape measurements due (4-weekly).' : 'Benchmarks due (8-weekly).') : null,
+    el('div', { class: 'chips', style: 'margin-top:10px' },
+      el('button', { class: 'chip', onclick: measurementSheet }, '📏 Log tape measurements'),
+      el('button', { class: 'chip', onclick: benchmarkSheet }, '⏱ Log benchmarks'))));
+
   const p = settings.profile;
   root.append(el('div', { class: 'card' },
     el('h2', {}, 'Profile & goal'),
     el('p', {}, esc(p.goal)),
-    el('p', { class: 'muted' }, `Target rate ${esc(p.targetRate)} · ${esc(p.watch)}`),
+    el('p', { class: 'muted' }, `Target rate ${esc(p.targetRate)} · ${esc(p.watch)} · ${p.sessionMinutes} min sessions`),
+    el('p', { class: 'muted', style: 'margin-top:4px' }, `Kit: ${esc(p.equipment)}`),
     el('button', { class: 'btn ghost', style: 'margin-top:10px', onclick: profileSheet }, 'Edit profile')));
 
   root.append(el('div', { class: 'card' },
     el('h2', {}, 'Settings'),
-    el('button', { class: 'btn ghost', onclick: apiKeySheet },
-      settings.apiKey ? 'Anthropic API key ✓ (edit)' : 'Add Anthropic API key')));
+    el('div', { class: 'chips' },
+      el('button', { class: 'chip', onclick: apiKeySheet },
+        settings.apiKey ? 'Anthropic API key ✓' : 'Add Anthropic API key'),
+      el('button', { class: 'chip', onclick: cloudSheet },
+        signedIn() ? 'Cloud sync ✓' : 'Set up cloud sync'))));
 }
+
+const fmtMinSec = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
 
 /* ---------------- sheets ---------------- */
 function logWeightSheet() {
@@ -203,7 +419,7 @@ function logWeightSheet() {
         const kg = parseFloat(input.value);
         if (!kg || kg < 20 || kg > 400) return toast('That doesn’t look like a weight.');
         await logs.add('weights', { kg });
-        close(); toast('Logged. Trend updates in Me.'); go('today');
+        close(); toast('Logged. Trend updates in Me.'); trySync(); go('today');
       },
     }, 'Save'));
   input.focus();
@@ -221,7 +437,7 @@ function logMealSheet() {
       class: 'btn', onclick: async () => {
         if (!input.value.trim()) return toast('Say what it was.');
         await logs.add('foods', { desc: input.value.trim(), source });
-        close(); toast('Meal logged.'); go('today');
+        close(); toast('Meal logged.'); trySync(); go('today');
       },
     }, 'Save'));
   input.focus();
@@ -237,10 +453,61 @@ function logWorkoutSheet() {
       class: 'btn', onclick: async () => {
         if (!input.value.trim()) return toast('Name the session.');
         await logs.add('workouts', { desc: input.value.trim(), rpe: parseInt(rpe.value) || null });
-        close(); toast('Session logged. Vic sees it.'); go('today');
+        close(); toast('Session logged. Vic sees it.'); trySync(); go('today');
       },
     }, 'Save'));
   input.focus();
+}
+
+function numField(label, placeholder, attrs = {}) {
+  const input = el('input', { type: 'number', inputmode: 'decimal', step: '0.1', placeholder, ...attrs });
+  return { row: el('div', { class: 'field' }, el('label', {}, label), input), value: () => parseFloat(input.value) || null };
+}
+
+function measurementSheet() {
+  const f = {
+    waist: numField('Waist (cm) — at the navel, relaxed', 'e.g. 94.5'),
+    hips: numField('Hips (cm) — widest point', 'e.g. 104'),
+    chest: numField('Chest (cm) — nipple line', 'e.g. 102'),
+    arm: numField('Upper arm (cm) — flexed, widest', 'e.g. 34'),
+    thigh: numField('Thigh (cm) — widest point', 'e.g. 58'),
+  };
+  const close = sheet('Tape measurements',
+    el('p', { class: 'muted', style: 'margin-bottom:12px' },
+      'Same tape, same spots, same time of day (morning is best). Every 4 weeks.'),
+    ...Object.values(f).map(x => x.row),
+    el('button', {
+      class: 'btn', onclick: async () => {
+        const vals = Object.fromEntries(Object.entries(f).map(([k, x]) => [k, x.value()]));
+        if (!Object.values(vals).some(v => v)) return toast('At least one measurement, champ.');
+        await logs.add('measurements', vals);
+        close(); toast('Measurements saved.'); trySync(); go('me');
+      },
+    }, 'Save measurements'));
+}
+
+function benchmarkSheet() {
+  const hr = numField('Resting heart rate (bpm) — morning, before coffee', 'e.g. 62', { step: '1' });
+  const runM = numField('1.6 km run — minutes', 'e.g. 9', { step: '1' });
+  const runS = numField('…and seconds', 'e.g. 30', { step: '1' });
+  const push = numField('Push-ups — max unbroken', 'e.g. 18', { step: '1' });
+  const plank = numField('Plank hold (seconds)', 'e.g. 60', { step: '1' });
+  const sqReps = numField('Goblet squat — reps', 'e.g. 15', { step: '1' });
+  const sqKg = numField('…with dumbbell (kg)', 'e.g. 10');
+  const close = sheet('Fitness & strength benchmarks',
+    el('p', { class: 'muted', style: 'margin-bottom:12px' },
+      'Every 8 weeks, same conditions. Warm up first; run route should be repeatable.'),
+    hr.row, runM.row, runS.row, push.row, plank.row, sqReps.row, sqKg.row,
+    el('button', {
+      class: 'btn', onclick: async () => {
+        const runSec = (runM.value() || 0) * 60 + (runS.value() || 0);
+        await logs.add('benchmarks', {
+          restingHr: hr.value(), runSec: runSec || null, pushups: push.value(),
+          plankSec: plank.value(), squatReps: sqReps.value(), squatKg: sqKg.value(),
+        });
+        close(); toast('Benchmarks saved.'); trySync(); go('me');
+      },
+    }, 'Save benchmarks'));
 }
 
 function apiKeySheet() {
@@ -255,21 +522,73 @@ function apiKeySheet() {
   input.focus();
 }
 
+function cloudSheet() {
+  const s = settings.load();
+  const url = el('input', { placeholder: 'https://xxxx.supabase.co', value: s.supabaseUrl || '' });
+  const key = el('input', { type: 'password', placeholder: 'anon / publishable key', value: s.supabaseAnonKey || '' });
+  const email = el('input', { type: 'email', placeholder: 'you@example.com', value: s.syncEmail || 'aphilem@gmail.com' });
+  const pass = el('input', { type: 'password', placeholder: 'password (min 6 chars)' });
+  const status = el('p', { class: 'muted', style: 'margin-top:10px' },
+    signedIn() ? `Signed in. Last sync: ${s.lastSync ? s.lastSync.slice(0, 16).replace('T', ' ') : 'never'}` : 'Not signed in.');
+  const doAuth = fn => async () => {
+    settings.save({ supabaseUrl: url.value.trim(), supabaseAnonKey: key.value.trim(), syncEmail: email.value.trim() });
+    if (!syncReady()) return toast('Project URL and key first.');
+    try {
+      await fn(email.value.trim(), pass.value);
+      status.textContent = 'Signed in ✓ — syncing…';
+      const counts = await pushAll(); await pushProfile();
+      status.textContent = 'Synced: ' + Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new';
+      toast('Cloud sync on.');
+    } catch (e) { status.textContent = '⚠️ ' + e.message; }
+  };
+  sheet('Cloud sync (Supabase)',
+    el('p', { class: 'muted', style: 'margin-bottom:12px' },
+      'Backs up your logs to your own Supabase project and syncs web ↔ Android. Fill these once — the values live only on this device.'),
+    el('div', { class: 'field' }, el('label', {}, 'Project URL'), url),
+    el('div', { class: 'field' }, el('label', {}, 'Publishable (anon) key'), key),
+    el('div', { class: 'field' }, el('label', {}, 'Email'), email),
+    el('div', { class: 'field' }, el('label', {}, 'Password'), pass),
+    el('div', { class: 'chips' },
+      el('button', { class: 'chip', onclick: doAuth(signUp) }, 'Create account'),
+      el('button', { class: 'chip', onclick: doAuth(signIn) }, 'Sign in'),
+      el('button', {
+        class: 'chip', onclick: async () => {
+          try {
+            const counts = await pushAll();
+            status.textContent = 'Synced: ' + (Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new');
+          } catch (e) { status.textContent = '⚠️ ' + e.message; }
+        },
+      }, 'Sync now')),
+    status);
+}
+
+/* Fire-and-forget push after any log write; silent when sync isn't set up */
+function trySync() {
+  if (syncReady() && signedIn()) pushAll().catch(() => {});
+}
+
 function profileSheet() {
   const p = { ...defaultProfile(), ...settings.profile };
   const injuries = el('input', { value: p.injuries, placeholder: 'e.g. left knee — no deep squats' });
-  const equipment = el('input', { value: p.equipment, placeholder: 'e.g. dumbbells, bands, bike' });
+  const equipment = el('input', { value: p.equipment });
+  const minutes = el('input', { type: 'number', value: p.sessionMinutes, min: 15, max: 180, step: 5 });
   const tone = el('select', {},
     ...['gentle', 'balanced', 'direct'].map(t =>
       el('option', { value: t, selected: p.tone === t }, t[0].toUpperCase() + t.slice(1))));
   const close = sheet('Profile',
     el('div', { class: 'field' }, el('label', {}, 'Injuries / limits (Vic works around these)'), injuries),
-    el('div', { class: 'field' }, el('label', {}, 'Equipment'), equipment),
+    el('div', { class: 'field' }, el('label', {}, 'Equipment (drives every plan)'), equipment),
+    el('div', { class: 'field' }, el('label', {}, 'Session budget (min, incl. warm-up & cool-down)'), minutes),
     el('div', { class: 'field' }, el('label', {}, 'Vic’s tone dial'), tone),
     el('button', {
       class: 'btn', onclick: () => {
-        settings.save({ profile: { ...p, injuries: injuries.value, equipment: equipment.value, tone: tone.value } });
-        close(); toast('Saved. Vic adapts.'); go('me');
+        settings.save({
+          profile: {
+            ...p, injuries: injuries.value, equipment: equipment.value,
+            sessionMinutes: parseInt(minutes.value) || 60, tone: tone.value,
+          },
+        });
+        close(); toast('Saved. Vic adapts.'); pushProfile(); go('me');
       },
     }, 'Save'));
 }

@@ -2,7 +2,7 @@
 
 **Name:** *Trainer App*
 **Platforms:** Android (Capacitor) + Web (installable PWA)
-**Version:** Spec v1.3 — 2026-07-22
+**Version:** Spec v1.4 — 2026-07-22
 **Owner:** Aphile M
 
 ---
@@ -61,9 +61,14 @@ logged data — never invented.
   no-excuses core and did-you-know habit are constants.
 
 ### 2.2 Coach memory & context
-- Structured **athlete profile**: goals, injuries, equipment, food preferences/allergies,
-  schedule constraints, personal records. Editable — you can always see and correct what
-  the coach believes about you.
+- Structured **athlete profile**: goals, injuries, food preferences/allergies, schedule
+  constraints, personal records. Editable — you can always see and correct what the coach
+  believes about you.
+- **Equipment registry** (drives every plan Vic writes): dumbbells, bench, Swiss ball,
+  stepper, skipping rope, resistance bands, ankle weights, walker/treadmill — plus street
+  running and bodyweight work as preferred modalities. Editable as kit changes.
+- **Session time budget**: default **60 minutes including warm-up and cool-down**,
+  adjustable per session ("only got 30 today" → Vic compresses, never cancels).
 - **Rolling summaries**: weekly digests of training, nutrition, and adherence are stored and
   fed back into context so the coach genuinely "remembers" months of history without
   blowing the context window.
@@ -78,15 +83,29 @@ logged data — never invented.
 - Evening check-in: 30-second review — how did the session feel (RPE), quick mood/energy
   score, tomorrow preview.
 
-### 2.4 Adaptive coaching engine
-- Goal wizard at onboarding: primary goal (fat loss / muscle / endurance event / general
-  health), target date, weekly time budget, equipment.
-- The coach generates a **periodised plan** (mesocycle → weeks → sessions) and then
-  **re-plans continuously**: missed session → redistributes load; Strava shows an
-  unplanned 20 km ride → tomorrow becomes recovery; calendar shows travel → hotel-room
-  bodyweight session.
-- Deload weeks, progressive overload, and injury-aware substitutions built into the
-  planning prompts as explicit rules, not vibes.
+### 2.4 Adaptive coaching engine — structured periodisation
+Plans are generated **only after the measure-and-benchmark session** (§3.4) — Vic won't
+prescribe before he's measured. Every plan has an explicit three-level hierarchy, because
+structure and forward planning are the point:
+
+- **Monthly theme (mesocycle)** — one clear focus per 4-week block ("Foundation: build
+  the habit, protect the joints"), with the why spelled out against your goal and data.
+- **Weekly focus (microcycle)** — what this week is for within the theme ("Week 3: add a
+  set everywhere — peak week before we deload") and how many sessions it expects.
+- **Workout of the Day (WOD)** — the concrete session: warm-up → main block(s) →
+  cool-down, fitted to the session time budget (default 60 min all-in) and built ONLY
+  from registered equipment, street running, and bodyweight work.
+
+Vic **guides you through** the plan, not just hands it over: the daily brief frames the
+day's session against the weekly focus; the workout player walks it exercise by exercise;
+the weekly review closes the week against its focus.
+
+- Progression rules are explicit in the planning prompts, not vibes: progressive overload
+  week to week, a deload roughly every 4th week, injury-aware substitutions, and
+  **sustainable-and-attainable targets** — the next step is always small enough to hit.
+- **Re-plans continuously**: missed session → redistributes load; Strava shows an
+  unplanned 20 km ride → tomorrow becomes recovery; travel on the calendar → hotel-room
+  bodyweight session. The monthly theme survives re-planning; only the path adjusts.
 
 ---
 
@@ -147,6 +166,24 @@ metric.
   narrative of what changed. This is the moment the app proves the plan is working (or
   triggers an honest re-plan if it isn't).
 - Shareable progress card (optional) showing score trajectory without exposing weight.
+
+### 3.4 Measurement & benchmarking protocol
+Progress tracking at appropriate intervals, each metric on the cadence where change is
+actually visible — measuring more often than the body can change just manufactures noise
+(Vic explains this when someone tries):
+
+| What | Measures | Cadence |
+|---|---|---|
+| **Body weight** | scale weight → 7-day trend | ad lib (daily ok); trend is the headline |
+| **Body measurements** | waist, hips, chest, arms, thighs (cm) | every **4 weeks** |
+| **Fitness benchmarks** | resting HR; timed 1.6 km run (or brisk walk test) | every **8 weeks** |
+| **Strength benchmarks** | push-up max, plank hold, goblet squat reps @ fixed dumbbell | every **8 weeks** |
+
+- The **initial measuring session is the gate**: Vic's first plan is generated from it,
+  and he walks you through taking each measurement correctly.
+- 8-week benchmarks align with the **re-benchmark ritual** (§3.3) so fitness, strength,
+  tape and Lifestyle Score deltas land in one before/after review.
+- The app surfaces "measurements due" when a cadence lapses; Vic nags precisely once.
 
 ---
 
@@ -400,8 +437,17 @@ multi-user (family) support if wanted.
   impact report, baseline deviation flags, auto-tagging differentiator.
 - Coach: **Vic** — slightly patient, no-excuses, inspiring, with data-grounded
   "Did you know" insights (see §2).
+- Plan structure: **monthly theme → weekly focus → workout of the day**, generated only
+  after the measure-and-benchmark session; Vic guides each session (§2.4).
+- Equipment registry: dumbbells, bench, Swiss ball, stepper, skipping rope, resistance
+  bands, ankle weights, walker/treadmill + street running + bodyweight preference.
+- Session budget: **60 min default** including warm-up and cool-down.
+- Measurement cadences: tape 4-weekly; fitness & strength benchmarks 8-weekly (§3.4).
+- Supabase reality check: no cookbook project exists yet (cookbook is local-only) and the
+  org's free tier is at its 2-project cap — host project choice pending (see §13).
 
 ## 13. Open questions
 
-None — spec is build-ready. New questions get logged here as they surface during
-implementation.
+1. Which Supabase project hosts the shared schema: an existing project (tables are fully
+   namespaced `trainer_*`/`shared_*`, zero collision), or pause/upgrade to create a
+   dedicated "Aphile Lifestyle" project?
