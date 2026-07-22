@@ -1,8 +1,8 @@
-# Aphile's Lifestyle App — Feature Specification
+# Trainer App — Feature Specification
 
-**Working title:** *Sidekick* (placeholder — see Open Questions)
+**Name:** *Trainer App*
 **Platforms:** Android (Capacitor) + Web (installable PWA)
-**Version:** Spec v1.0 — 2026-07-22
+**Version:** Spec v1.1 — 2026-07-22
 **Owner:** Aphile M
 
 ---
@@ -14,6 +14,12 @@ as one system — not four separate apps. The AI coach knows what you cooked (Ap
 Cookbook), what you trained (Strava), what your week looks like (Google Calendar), and what
 keeps you moving (Spotify), and uses that full picture to coach you toward your goals with
 the warmth and accountability of a real trainer.
+
+**Primary goal (v1):** weight loss through sustainable lifestyle changes — no crash
+protocols, no unsustainable restriction. Progress is made *measurable* by the *Lifestyle
+Score* (§3): a benchmark of where you are today and an aggregate measure of improvement over
+time, with breakdowns and insights across every lifestyle area. The coach optimises the
+score's inputs (behaviours), and the outcomes (trend weight, fitness) follow.
 
 **Design north stars**
 
@@ -73,9 +79,63 @@ The centerpiece. A named, persistent AI personal trainer powered by the Claude A
 
 ---
 
-## 3. Train
+## 3. Lifestyle Score (benchmark & progress measurement)
 
-### 3.1 Workout library & player
+The app's measurement backbone: one aggregate number that answers "where am I now, and am I
+actually improving?" — with honest breakdowns underneath so it never becomes a vanity
+metric.
+
+### 3.1 Baseline benchmark
+- **Calibration fortnight** at onboarding: a short self-assessment questionnaire plus two
+  weeks of normal observed data (Strava, food logs, sleep check-ins, habits) establish the
+  **baseline score** before coaching pressure begins. The coach explicitly frames it:
+  "live normally for two weeks so we know the honest starting line."
+- Baseline is stored immutably and every later view shows **delta vs. baseline**, not just
+  the raw number.
+
+### 3.2 Score model
+- Aggregate **Lifestyle Score 0–100**, a weighted blend of five pillar sub-scores
+  (each 0–100):
+
+  | Pillar | Measures | Weight (weight-loss profile) |
+  |---|---|---|
+  | **Move** | Training sessions completed, weekly load vs. plan, daily activity | 25% |
+  | **Fuel** | Adherence to kcal/protein targets, meal quality, home-cooked ratio | 30% |
+  | **Recover** | Sleep consistency & quality, readiness trend, rest-day compliance | 20% |
+  | **Consistency** | Habit completion, logging streaks, plan adherence over weeks | 15% |
+  | **Body** | Trend-weight trajectory vs. sustainable target rate (not absolute weight) | 10% |
+
+- Weights are goal-profile dependent (a future muscle-gain profile would weight Move/Fuel
+  differently) and visible in settings — no black box.
+- **Behaviour-heavy by design**: 90% of the score is things you *do* (controllable), only
+  10% is the outcome (Body). Sustainable-change philosophy encoded in the math: a bad
+  scale week can't wreck the score if the behaviours held.
+- Scores are computed from data already captured elsewhere in the app — the score adds no
+  logging burden of its own.
+- Computed daily, but the **weekly score is the headline** (7-day window) to dampen noise;
+  monthly rollups for long-range trends.
+
+### 3.3 Progress views & insights
+- **Today tab**: current weekly score chip with 7-day sparkline.
+- **Me → Progress**: score timeline since baseline (week/month/quarter zoom), stacked
+  pillar breakdown showing *which* areas drive each change, and per-pillar drilldowns down
+  to the underlying logs.
+- **Coach insights** (weekly review + on demand): plain-language analysis, always naming
+  the biggest win and the biggest drag — "Score up 4: sleep consistency did the work.
+  Fuel dipped Thursday–Saturday; want the weekend meal plan adjusted?" Cross-pillar
+  correlations from *your* data ("weeks you sleep 7h+, your Fuel adherence runs ~12 points
+  higher") once enough history exists.
+- **Re-benchmark ritual every 8 weeks**: formal before/after comparison against baseline
+  and against the previous block — aggregate delta, per-pillar deltas, and the coach's
+  narrative of what changed. This is the moment the app proves the plan is working (or
+  triggers an honest re-plan if it isn't).
+- Shareable progress card (optional) showing score trajectory without exposing weight.
+
+---
+
+## 4. Train
+
+### 4.1 Workout library & player
 - Session player: exercise cards with sets × reps × load, rest timers with notification
   beeps (reuse cookbook timer/alarm engine), demo notes, and one-tap "done / harder /
   easier" per set.
@@ -83,39 +143,42 @@ The centerpiece. A named, persistent AI personal trainer powered by the Claude A
   your equipment and injury list.
 - Log-as-you-go with plate-math helper and last-time-vs-this-time comparison.
 
-### 3.2 Strava integration (read)
+### 4.2 Strava integration (read)
 - Auto-import runs/rides/swims: distance, pace, HR zones, relative effort.
 - Imported activities count toward weekly load and can **satisfy planned sessions**
   ("today's Zone 2 run" auto-completes when the matching Strava activity lands).
 - Training load chart: acute vs. chronic load (ACWR-style) with plain-language
   interpretation from the coach, not just a graph.
 
-### 3.3 Spotify integration
+### 4.3 Spotify integration
 - One-tap **workout playlist** generation matched to session type (intervals → high BPM,
   Zone 2 → steady, yoga/mobility → calm) via Spotify playlist creation.
 - "What was playing during my PR" fun stat.
 
 ---
 
-## 4. Fuel (cookbook integration — the differentiator)
+## 5. Fuel (cookbook integration — the differentiator)
 
 Aphile's Cookbook stays the standalone cooking companion; the Lifestyle app becomes its
 nutrition brain. Integration is two-way.
 
-### 4.1 Recipe sync
-- Cookbook recipes sync into the lifestyle app (see §8 for mechanism). Each recipe gets an
+### 5.1 Recipe sync
+- Cookbook recipes sync into the lifestyle app (see §5.5 and §9). Each recipe gets an
   AI-estimated **nutrition profile** (kcal, protein/carbs/fat per serving) computed once by
   Claude and cached; user-correctable.
 
-### 4.2 Meal planning
+### 5.2 Meal planning
 - Weekly meal plan generated from *your own recipes first*, filtered by macro targets,
-  pantry contents, and training day type (higher-carb on hard days, protein floor daily).
+  **live pantry contents (read from the cookbook, §5.5)**, and training day type
+  (higher-carb on hard days, protein floor daily).
 - Gaps filled with coach-suggested simple meals, which can be **exported to the cookbook**
   as new recipes (reusing the cookbook's existing import format).
-- Meal plan → **combined shopping list**, pushed to the cookbook's shopping list so there
-  is exactly one list at the shop.
+- Plans are drafted by the coach, then **agreed** with you (accept / swap meals per day)
+  before anything syncs — only agreed plans are pushed to the cookbook.
+- Meal plan → **combined shopping list** (plan ingredients minus what the pantry already
+  holds), pushed to the cookbook's shopping list so there is exactly one list at the shop.
 
-### 4.3 Frictionless food logging
+### 5.3 Frictionless food logging
 - **Photo logging**: snap the plate → Claude vision estimates the meal and portions →
   confirm/adjust in one tap. (Same camera + downscale pipeline the cookbook already uses
   for recipe import.)
@@ -124,15 +187,44 @@ nutrition brain. Integration is two-way.
 - Deliberately **not** a barcode-database calorie counter: estimates + trends over false
   precision. The coach explains this philosophy to the user.
 
-### 4.4 Nutrition coaching
+### 5.4 Nutrition coaching
 - Daily targets (kcal + protein floor + rough carb/fat split) set by the planning engine
   and adjusted weekly from actual trend weight and adherence — the coach closes the loop
   instead of using static formulas.
 - Hydration nudges tied to training sessions and (later) weather.
 
+### 5.5 Cookbook Sync Module (two-way, decided)
+A small sync module added to Aphile's Cookbook, connecting both apps through the shared
+Supabase project. Optional in the cookbook (it works fully offline without it, as today)
+and versioned so either app can update independently via OTA.
+
+**Cookbook → Trainer App (read):**
+- **Pantry**: the cookbook's pantry items become the source of truth the meal planner
+  reads — "what's in my pantry" is answered from real data, and shopping lists exclude
+  what you already have.
+- **Recipes**: full recipe library (for nutrition profiling, §5.1) with change detection
+  so edits/new imports flow through automatically.
+- **Cooked events**: finishing a recipe in the cookbook's cooking mode logs a meal in the
+  Trainer App automatically (serving count from the cookbook's servings adjuster).
+
+**Trainer App → Cookbook (write):**
+- **Agreed meal plans**: the accepted weekly plan appears in the cookbook as a "This
+  week's plan" view — each day linking straight to the recipe and its cooking mode.
+- **Shopping list items**: plan-derived, pantry-deduplicated items merge into the
+  cookbook's existing shopping list (append + merge by ingredient, never overwrite
+  user-added items).
+- **New recipes**: coach-suggested meals exported in the cookbook's import format.
+
+**Mechanics:** offline-first queue on both sides — changes are written locally to
+IndexedDB, then pushed/pulled through Supabase (Postgres tables + row-level security under
+your single user account) when online; last-write-wins per item with the cookbook winning
+conflicts on pantry/shopping data (it's the kitchen-side source of truth) and the Trainer
+App winning on plans. No sync while the cookbook has no key/account configured — the
+module ships dormant until connected.
+
 ---
 
-## 5. Recover & Wellbeing (the "holistic" pillar)
+## 6. Recover & Wellbeing (the "holistic" pillar)
 
 - **Readiness score** each morning from: self-reported sleep quality (or Health Connect
   sleep data when available), yesterday's load, muscle soreness quick-tap body map, and
@@ -148,7 +240,7 @@ nutrition brain. Integration is two-way.
 
 ---
 
-## 6. Life (schedule & motivation)
+## 7. Life (schedule & motivation)
 
 - **Google Calendar integration**: planned sessions are written to your calendar as events;
   the planner reads busy blocks to schedule sessions realistically, and re-plans around
@@ -163,20 +255,21 @@ nutrition brain. Integration is two-way.
 
 ---
 
-## 7. Screens (information architecture)
+## 8. Screens (information architecture)
 
 Bottom nav, five tabs:
 
 | Tab | Contents |
 |---|---|
-| **Today** | Daily brief, readiness, today's session + meals, quick-log buttons |
+| **Today** | Daily brief, Lifestyle Score chip + sparkline, readiness, today's session + meals, quick-log buttons |
 | **Coach** | Persistent chat with the AI trainer (voice + text) |
 | **Train** | Plan calendar, workout player, Strava feed, load charts |
 | **Fuel** | Meal plan, food log, macro rings, cookbook recipe browser |
-| **Me** | Progress (weight, PRs, photos), habits, profile/goals, settings |
+| **Me** | Lifestyle Score timeline + pillar breakdowns, progress (trend weight, PRs, photos), habits, profile/goals, settings |
 
-Onboarding: goal wizard → connect services (Strava, Calendar, Spotify, cookbook sync,
-Anthropic key) → coach introduces itself with your first week's plan. Each connection is
+Onboarding: goal wizard (weight-loss profile is the tuned default) → connect services
+(Strava, Calendar, Spotify, cookbook sync, Anthropic key) → coach introduces itself and
+starts the two-week baseline calibration (§3.1) before the first full plan. Each connection is
 skippable; the app degrades gracefully to manual logging.
 
 Accessibility & UX baselines: one-hand reach for all primary actions, large tap targets in
@@ -185,7 +278,7 @@ contrast, no data ever lost on airplane mode.
 
 ---
 
-## 8. Architecture
+## 9. Architecture
 
 Mirrors the cookbook's proven setup, plus a thin sync layer.
 
@@ -199,8 +292,9 @@ Mirrors the cookbook's proven setup, plus a thin sync layer.
   model for weekly planning and photo nutrition estimates. All coach actions via tool use.
 - **Data:** local-first in IndexedDB (cookbook pattern) with **Supabase** (your existing
   account) as sync + backup: auth, Postgres for logs/plans/profile, storage for progress
-  photos. Web and Android stay in sync; cookbook↔lifestyle recipe/shopping-list sync also
-  rides through Supabase (the cookbook gains a small optional sync module).
+  photos. Web and Android stay in sync; the Cookbook Sync Module (§5.5)
+  rides the same Supabase project — pantry/recipes/cooked-events in, agreed meal plans and
+  shopping items out.
 - **Integrations:** Strava API (OAuth, activity read + webhook later), Google Calendar API
   (event read/write), Spotify Web API (playlist create), Android Health Connect (steps &
   sleep, post-MVP).
@@ -210,19 +304,22 @@ Mirrors the cookbook's proven setup, plus a thin sync layer.
 
 ---
 
-## 9. Phased roadmap
+## 10. Phased roadmap
 
-**MVP (v1) — "a coach that knows my food and my training"**
-Onboarding + goal wizard · coach chat with memory + profile · plan generation & adaptive
-re-planning · workout player with logging + rest timers · Strava read sync · cookbook
-recipe sync + nutrition estimates · photo/voice/"cooked from cookbook" food logging ·
-daily brief + evening check-in · trend weight · Supabase sync · PWA + Android builds with
-OTA.
+**MVP (v1) — "benchmark me, coach me, feed me"**
+Onboarding + goal wizard (weight-loss profile) · **Lifestyle Score: calibration fortnight,
+baseline benchmark, weekly score + pillar breakdown** · coach chat with memory + profile ·
+plan generation & adaptive re-planning · workout player with logging + rest timers ·
+Strava read sync · **Cookbook Sync Module: pantry + recipes in, agreed meal plans +
+shopping list out** · recipe nutrition estimates · photo/voice/"cooked from cookbook" food
+logging · daily brief + evening check-in · trend weight · Supabase sync · PWA + Android
+builds with OTA.
 
 **v2 — "holistic"**
-Readiness score + soreness body map · Google Calendar two-way scheduling · habit tracker ·
-weekly review + recap card · Spotify workout playlists · meal plan → cookbook shopping
-list push · mobility content.
+Readiness score + soreness body map · cross-pillar score insights & correlations ·
+8-week re-benchmark ritual · Google Calendar two-way scheduling · habit tracker · weekly
+review + recap card · Spotify workout playlists · cooked-event auto-logging from the
+cookbook · mobility content.
 
 **v3 — "deeper"**
 Health Connect (sleep/steps) · Strava webhooks (instant sync) · hydration & wind-down
@@ -231,18 +328,21 @@ multi-user (family) support if wanted.
 
 ---
 
-## 10. Success criteria
+## 11. Success criteria
 
 - Aphile logs food and training on ≥5 days/week after week 4 (the retention cliff).
 - Median log action ≤10 seconds.
 - Coach re-plans correctly after a missed/extra session without manual editing.
-- Measurable progress toward the primary goal at the 8-week review.
+- Baseline Lifestyle Score captured within 14 days of install; every week thereafter shows
+  a score with pillar breakdowns and at least one actionable insight.
+- Lifestyle Score meaningfully above baseline at the 8-week re-benchmark, with trend
+  weight moving at a sustainable rate (~0.25–0.75 kg/week average).
 
-## 11. Open questions
+## 12. Open questions
 
-1. App name and coach name/persona.
-2. Primary goal for *your* first plan (drives which MVP features get polish first).
-3. Supabase: reuse an existing project or create a dedicated one?
-4. Cookbook sync: comfortable adding a small optional sync module to the cookbook app, or
-   should v1 do one-way import (cookbook → lifestyle) only?
-5. Wearable in the picture (watch/HR strap) beyond what Strava already captures?
+1. Coach name/persona (app is *Trainer App*; the coach itself still needs a name & voice).
+2. Supabase: reuse an existing project or create a dedicated one?
+3. Wearable in the picture (watch/HR strap) beyond what Strava already captures? (Affects
+   how much of Recover can be automatic vs. self-reported in the score.)
+4. Sustainable target rate for the weight-loss profile — agree the kg/week band with the
+   coach at onboarding, or fix a default?
