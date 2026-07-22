@@ -534,13 +534,22 @@ function cloudSheet() {
   const doAuth = fn => async () => {
     settings.save({ supabaseUrl: url.value.trim(), supabaseAnonKey: key.value.trim(), syncEmail: email.value.trim() });
     if (!syncReady()) return toast('Project URL and key first.');
+    if (!pass.value) return toast('Enter your password first.');
     try {
       await fn(email.value.trim(), pass.value);
+      if (!signedIn()) {
+        // Signup without a session: the email either already has an account in this
+        // project or needs confirmation — either way, Sign in is the next step.
+        status.textContent = 'No session yet. If this email already has an account here, tap Sign in with its password. Otherwise check your inbox for a confirmation link, then Sign in.';
+        return;
+      }
       status.textContent = 'Signed in ✓ — syncing…';
       const counts = await pushAll(); await pushProfile();
-      status.textContent = 'Synced: ' + Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new';
+      status.textContent = 'Synced: ' + (Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new');
       toast('Cloud sync on.');
-    } catch (e) { status.textContent = '⚠️ ' + e.message; }
+    } catch (e) {
+      status.textContent = '⚠️ ' + (e.message === 'NOT_SIGNED_IN' ? 'Not signed in yet — tap Sign in with your password.' : e.message);
+    }
   };
   sheet('Cloud sync (Supabase)',
     el('p', { class: 'muted', style: 'margin-bottom:12px' },
@@ -557,7 +566,9 @@ function cloudSheet() {
           try {
             const counts = await pushAll();
             status.textContent = 'Synced: ' + (Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new');
-          } catch (e) { status.textContent = '⚠️ ' + e.message; }
+          } catch (e) {
+            status.textContent = '⚠️ ' + (e.message === 'NOT_SIGNED_IN' ? 'Sign in first.' : e.message);
+          }
         },
       }, 'Sync now')),
     status);
