@@ -3,26 +3,26 @@
 Living backlog. Items move to ✅ when shipped to the live app. See SPEC.md for the design
 each item implements.
 
-## In flight (this batch)
+## Shipped 2026-07-22
 
-- [ ] **Pull-restore** — fresh device rehydrates all logs from Supabase on sign-in
-- [ ] **Change password** — in the cloud sync sheet (no more chat-transmitted resets)
-- [ ] **Fuel: recipe browser** — synced cookbook recipes with AI nutrition estimates
+- [x] **Pull-restore** — fresh device rehydrates all logs from Supabase on sign-in
+- [x] **Change password** — in the cloud sync sheet (no more chat-transmitted resets)
+- [x] **Fuel: recipe browser** — synced cookbook recipes with AI nutrition estimates
       (cached to `shared_recipes.nutrition`), one-tap "cooked this" logging
-- [ ] **Fuel: meal planning** — Vic drafts the week from your recipes + live pantry;
+- [x] **Fuel: meal planning** — Vic drafts the week from your recipes + live pantry;
       agree/swap flow; agreed plan pushes to the cookbook (`shared_meal_plans`) with a
       pantry-deduplicated shopping list (`shared_shopping_items`)
-- [ ] **Photo food logging** — snap the plate → Claude vision estimate → confirm → logged
+- [x] **Photo food logging** — snap the plate → Claude vision estimate → confirm → logged
       with macros
-- [ ] **Score history & baseline** — weekly Lifestyle Score upserts to `trainer_scores`;
+- [x] **Score history & baseline** — weekly Lifestyle Score upserts to `trainer_scores`;
       baseline row locked after the calibration fortnight
-- [ ] **Garmin daily metrics (manual)** — quick-entry sheet for sleep score / RHR /
+- [x] **Garmin daily metrics (manual)** — quick-entry sheet for sleep score / RHR /
       stress / Body Battery / steps into `trainer_daily_metrics` (stopgap until Health
       Connect below)
-- [ ] **Strava import** — Supabase Edge Function proxy (CORS-safe token exchange +
+- [x] **Strava import** (needs your Strava API app credentials to go live) — Supabase Edge Function proxy (CORS-safe token exchange +
       activity fetch); connect with your own Strava API app credentials; imported
       activities become workouts (deduped by `strava_id`)
-- [ ] **Cookbook Sync Module (cookbook side)** — `www/sync.js` in aphiles-cookbook:
+- [x] **Cookbook Sync Module (cookbook side)** (on the cookbook branch, ships with its next release) — `www/sync.js` in aphiles-cookbook:
       pushes pantry/recipes/cooked-events up, shows "This week's plan", merges
       trainer-generated shopping items into the cookbook list
 
