@@ -2,7 +2,7 @@
 
 **Name:** *Trainer App*
 **Platforms:** Android (Capacitor) + Web (installable PWA)
-**Version:** Spec v1.2 — 2026-07-22
+**Version:** Spec v1.3 — 2026-07-22
 **Owner:** Aphile M
 
 ---
@@ -39,7 +39,17 @@ score's inputs (behaviours), and the outcomes (trend weight, fitness) follow.
 
 ## 2. The Coach (core AI experience)
 
-The centerpiece. A named, persistent AI personal trainer powered by the Claude API.
+The centerpiece: **Vic**, a persistent AI personal trainer powered by the Claude API.
+
+**Vic's persona (decided):** slightly patient but **no excuses** — he'll hear you out
+once, then redirect straight to the next action ("okay, knees are sore — we swap squats,
+we don't skip the session"). He inspires and encourages better behaviour rather than
+scolding, celebrates real wins with specifics, and regularly drops knowledgeable
+**"Did you know…"** micro-insights tied to (a) your actual progress data ("did you know
+your sleep consistency is up 22% since baseline?") and (b) the evidence behind whatever
+he's asking you to focus on or improve ("did you know protein at breakfast measurably
+reduces evening snacking?"). Facts must be real and, where personal, drawn from your
+logged data — never invented.
 
 ### 2.1 Coach conversation
 - Full-screen chat home tab: ask anything ("swap tonight's session, my knees are sore"),
@@ -47,7 +57,8 @@ The centerpiece. A named, persistent AI personal trainer powered by the Claude A
 - **Voice input** (Android speech-to-text) for hands-free logging mid-workout or mid-cook.
 - Streaming responses; quick-reply chips for common actions ("Log it", "Adjust plan",
   "Show alternatives").
-- Coach **personality settings**: encouraging / drill-sergeant / clinical; concise / chatty.
+- **Tone dial** (persona stays Vic): more gentle ↔ more direct; concise ↔ chatty. The
+  no-excuses core and did-you-know habit are constants.
 
 ### 2.2 Coach memory & context
 - Structured **athlete profile**: goals, injuries, equipment, food preferences/allergies,
@@ -387,7 +398,10 @@ multi-user (family) support if wanted.
 - Inspiration reviewed: DC Rainmaker on Garmin Lifestyle Logging / Health Status vs Whoop
   Journal (2025-09) → adopted journal quick-tags, 5×5/90-day impact methodology, monthly
   impact report, baseline deviation flags, auto-tagging differentiator.
+- Coach: **Vic** — slightly patient, no-excuses, inspiring, with data-grounded
+  "Did you know" insights (see §2).
 
 ## 13. Open questions
 
-1. Coach name/persona (app is *Trainer App*; the coach itself still needs a name & voice).
+None — spec is build-ready. New questions get logged here as they surface during
+implementation.
