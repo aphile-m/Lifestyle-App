@@ -26,6 +26,11 @@ each item implements.
       pushes pantry/recipes/cooked-events up, shows "This week's plan", merges
       trainer-generated shopping items into the cookbook list
 
+- [x] **Setup journey (onboarding)** — gated paged flow: welcome splash → feature intro
+      → setup checklist (live ✓ confirmations) → meet Vic → his four requirements step
+      by step → unlock. First slice of the UI-refresh direction (motion, Vic's voice in
+      the UI) pulled forward.
+
 ## Next
 
 - [ ] **Health Connect (native)** — Capacitor Android plugin reading Garmin sleep/RHR/

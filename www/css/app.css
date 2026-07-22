@@ -114,3 +114,29 @@ body {
   padding: 12px 14px; font-size: 14px; margin: 10px 0;
 }
 .did-you-know b { color: var(--accent); }
+
+/* --- setup journey (onboarding) --- */
+.journey-mode .tabbar { display: none; }
+.journey-mode .screen { padding-bottom: 24px; }
+.journey { display: flex; flex-direction: column; min-height: calc(100vh - 60px); animation: j-in .35s ease; }
+@keyframes j-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
+.j-page { flex: 1; }
+.j-center { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
+.j-hero { font-size: 72px; margin-bottom: 12px; animation: j-pop .5s cubic-bezier(.2,1.6,.4,1); }
+@keyframes j-pop { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
+.j-title { font-size: 28px; font-weight: 700; margin-bottom: 10px; }
+.j-tag { color: var(--accent); font-weight: 600; }
+.j-step { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; }
+.j-dots { display: flex; gap: 6px; justify-content: center; margin: 4px 0 18px; }
+.j-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--card-2); transition: all .25s; }
+.j-dot.on { background: var(--accent); width: 22px; border-radius: 4px; }
+.j-dot.past { background: var(--accent); opacity: .45; }
+.j-nav { display: flex; gap: 10px; margin-top: 18px; padding-bottom: env(safe-area-inset-bottom, 0px); }
+.j-check { display: flex; gap: 12px; align-items: center; background: var(--card); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; transition: background .3s; }
+.j-check.done { background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
+.j-tick { width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--card-2); font-weight: 700; }
+.j-check.done .j-tick { background: var(--accent); color: var(--accent-ink); }
+.vic-bubble { display: flex; gap: 10px; background: var(--card); border-radius: 16px; border-bottom-left-radius: 4px; padding: 14px; margin-bottom: 14px; }
+.vic-face { font-size: 26px; flex: none; }
+.vic-bubble p { margin-bottom: 8px; }
+.vic-bubble p:last-child { margin-bottom: 0; }

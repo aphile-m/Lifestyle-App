@@ -8,6 +8,7 @@ import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBen
 import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, importActivities } from './strava.js';
+import { initOnboarding, journeyActive, renderJourney, startJourney } from './onboarding.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
 
@@ -15,6 +16,7 @@ const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
 
 function go(tab) {
+  if (journeyActive()) { renderJourney(); return; } // sheets saved mid-journey refresh the journey
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   $('#screen').replaceChildren();
   screens[tab]($('#screen'));
@@ -30,7 +32,16 @@ if (!settings.profile.baselineStart) {
 // complete a Strava OAuth redirect if we arrived with ?code=
 handleStravaRedirect().then(ok => { if (ok) toast('Strava connected.'); }).catch(e => toast('Strava: ' + e.message));
 
-go(localStorage.getItem('trainer_tab') || 'today');
+// the setup journey gates the app until its requirements are met (SPEC §8)
+initOnboarding({
+  sheets: {
+    apiKey: apiKeySheet, cloud: cloudSheet, strava: stravaSheet,
+    weight: logWeightSheet, tape: measurementSheet, bench: benchmarkSheet,
+  },
+  onDone: () => { toast('Welcome aboard. Vic’s watching.'); go('today'); },
+});
+if (!settings.load().onboardingDone) startJourney();
+else go(localStorage.getItem('trainer_tab') || 'today');
 
 /* Weekly Lifestyle Score history: upsert this week's score; lock the earliest row as
    the baseline once the calibration fortnight has passed (SPEC §3.1/§3.2). */
@@ -551,7 +562,8 @@ async function me(root) {
         signedIn() ? 'Cloud sync ✓' : 'Set up cloud sync'),
       el('button', { class: 'chip', onclick: stravaSheet },
         stravaConnected() ? 'Strava ✓' : 'Connect Strava'),
-      el('button', { class: 'chip', onclick: metricsSheet }, '⌚ Garmin day log'))));
+      el('button', { class: 'chip', onclick: metricsSheet }, '⌚ Garmin day log'),
+      el('button', { class: 'chip', onclick: () => startJourney() }, '🚀 Replay setup journey'))));
 }
 
 const fmtMinSec = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -664,7 +676,11 @@ function apiKeySheet() {
       'Stored only on this device and sent only to Anthropic — same as the cookbook. Get one at console.anthropic.com.'),
     el('div', { class: 'field' }, input),
     el('button', {
-      class: 'btn', onclick: () => { settings.save({ apiKey: input.value.trim() }); close(); toast('Key saved.'); },
+      class: 'btn', onclick: () => {
+        settings.save({ apiKey: input.value.trim() });
+        close(); toast('Key saved.');
+        if (journeyActive()) renderJourney();
+      },
     }, 'Save key'));
   input.focus();
 }
@@ -694,6 +710,7 @@ function cloudSheet() {
       const counts = await pushAll(); await pushProfile();
       status.textContent = 'Synced: ' + (Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new');
       toast('Cloud sync on.');
+      if (journeyActive()) renderJourney();
     } catch (e) {
       status.textContent = '⚠️ ' + (e.message === 'NOT_SIGNED_IN' ? 'Not signed in yet — tap Sign in with your password.' : e.message);
     }

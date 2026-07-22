@@ -2,7 +2,7 @@
 
 **Name:** *Trainer App*
 **Platforms:** Android (Capacitor) + Web (installable PWA)
-**Version:** Spec v1.4 — 2026-07-22
+**Version:** Spec v1.5 — 2026-07-22
 **Owner:** Aphile M
 
 ---
@@ -345,9 +345,14 @@ Bottom nav, five tabs:
 | **Fuel** | Meal plan, food log, macro rings, cookbook recipe browser |
 | **Me** | Lifestyle Score timeline + pillar breakdowns, progress (trend weight, PRs, photos), habits, profile/goals, settings |
 
-Onboarding: goal wizard (weight-loss profile is the tuned default) → connect services
-(Strava, Calendar, Spotify, cookbook sync, Anthropic key) → coach introduces itself and
-starts the two-week baseline calibration (§3.1) before the first full plan. Each connection is
+Onboarding is a **gated setup journey** (shipped v0): paged flow with progress dots that
+must be completed before the day-to-day tabs unlock — welcome splash → feature intro →
+app setup checklist with live ✓ confirmations (API key required; cloud sync, Strava,
+cookbook optional and re-checked against reality, so finished parts show done) → meet
+Vic → Vic's requirements step by step in his own voice (profile confirm → first weigh-in
+→ tape → benchmarks, each gating Next) → celebration page offering first-plan generation
+→ unlock. Re-entrant anytime from Me → "Replay setup journey"; the two-week baseline
+calibration (§3.1) starts on first boot. Each connection is
 skippable; the app degrades gracefully to manual logging.
 
 Accessibility & UX baselines: one-hand reach for all primary actions, large tap targets in
