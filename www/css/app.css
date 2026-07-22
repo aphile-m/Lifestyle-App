@@ -1,0 +1,116 @@
+/* Trainer App — dark, energetic, one-hand friendly */
+:root {
+  --bg: #0F172A;         /* deep navy */
+  --card: #1E293B;
+  --card-2: #273449;
+  --ink: #F1F5F9;
+  --ink-dim: #94A3B8;
+  --accent: #84CC16;     /* lime — Vic's colour */
+  --accent-ink: #1A2E05;
+  --warn: #F59E0B;
+  --bad: #EF4444;
+  --radius: 16px;
+  --tabbar-h: 64px;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+html, body { height: 100%; }
+body {
+  background: var(--bg); color: var(--ink);
+  font-family: 'DM Sans', system-ui, sans-serif;
+  font-size: 16px; line-height: 1.45;
+  overscroll-behavior-y: none;
+}
+
+.screen {
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(var(--tabbar-h) + 24px);
+  max-width: 640px; margin: 0 auto; min-height: 100%;
+}
+
+/* --- tab bar --- */
+.tabbar {
+  position: fixed; bottom: 0; left: 0; right: 0; height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  display: flex; background: #0B1222; border-top: 1px solid #1E293B; z-index: 20;
+}
+.tab {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
+  background: none; border: none; color: var(--ink-dim); font: inherit; font-size: 11px; font-weight: 600;
+  cursor: pointer; min-height: 48px;
+}
+.tab .tab-ic { font-size: 20px; filter: grayscale(1) opacity(.7); }
+.tab.active { color: var(--accent); }
+.tab.active .tab-ic { filter: none; }
+
+/* --- cards & common --- */
+.card {
+  background: var(--card); border-radius: var(--radius); padding: 16px; margin-bottom: 12px;
+}
+.card h2 { font-size: 13px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); margin-bottom: 10px; }
+.h-page { font-size: 24px; font-weight: 700; margin: 4px 0 16px; }
+.muted { color: var(--ink-dim); font-size: 14px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  background: var(--accent); color: var(--accent-ink); border: none; border-radius: 12px;
+  padding: 13px 18px; font: inherit; font-weight: 700; cursor: pointer; min-height: 48px;
+}
+.btn.ghost { background: var(--card-2); color: var(--ink); }
+.btn:disabled { opacity: .5; }
+.row { display: flex; gap: 10px; align-items: center; }
+.row > .grow { flex: 1; }
+
+/* --- score ring --- */
+.score-wrap { display: flex; align-items: center; gap: 16px; }
+.score-ring { width: 92px; height: 92px; flex: none; }
+.score-num { font-size: 26px; font-weight: 700; fill: var(--ink); }
+.pillars { flex: 1; display: grid; gap: 6px; }
+.pillar { display: grid; grid-template-columns: 92px 1fr 34px; gap: 8px; align-items: center; font-size: 13px; }
+.pillar .bar { height: 6px; border-radius: 3px; background: var(--card-2); overflow: hidden; }
+.pillar .bar > i { display: block; height: 100%; background: var(--accent); border-radius: 3px; }
+.pillar .val { text-align: right; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+
+/* --- chips (journal / quick replies) --- */
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  background: var(--card-2); color: var(--ink); border: 1px solid transparent; border-radius: 999px;
+  padding: 9px 14px; font: inherit; font-size: 14px; cursor: pointer; min-height: 40px;
+}
+.chip.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
+
+/* --- chat --- */
+.chat { display: flex; flex-direction: column; gap: 10px; padding-bottom: 76px; }
+.bubble { max-width: 85%; padding: 12px 14px; border-radius: 16px; white-space: pre-wrap; }
+.bubble.vic { background: var(--card); border-bottom-left-radius: 4px; align-self: flex-start; }
+.bubble.me  { background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; align-self: flex-end; }
+.bubble.thinking { color: var(--ink-dim); font-style: italic; }
+.chat-input {
+  position: fixed; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px)); left: 0; right: 0;
+  display: flex; gap: 8px; padding: 10px 12px; background: var(--bg); max-width: 640px; margin: 0 auto; z-index: 10;
+}
+.chat-input input {
+  flex: 1; background: var(--card); border: 1px solid var(--card-2); border-radius: 12px;
+  color: var(--ink); font: inherit; padding: 12px 14px; min-height: 48px;
+}
+.chat-input input:focus { outline: 2px solid var(--accent); }
+
+/* --- forms / settings --- */
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 13px; font-weight: 600; color: var(--ink-dim); margin-bottom: 6px; }
+.field input, .field select {
+  width: 100%; background: var(--card); border: 1px solid var(--card-2); border-radius: 12px;
+  color: var(--ink); font: inherit; padding: 12px 14px; min-height: 48px;
+}
+.overlay {
+  position: fixed; inset: 0; background: rgba(2, 6, 23, .8); z-index: 30;
+  display: flex; align-items: flex-end; justify-content: center;
+}
+.sheet {
+  background: var(--bg); border-radius: 20px 20px 0 0; padding: 20px 16px calc(20px + env(safe-area-inset-bottom, 0px));
+  width: 100%; max-width: 640px; max-height: 88vh; overflow-y: auto;
+}
+.sheet h3 { margin-bottom: 14px; }
+
+.did-you-know {
+  border-left: 3px solid var(--accent); background: var(--card); border-radius: 0 12px 12px 0;
+  padding: 12px 14px; font-size: 14px; margin: 10px 0;
+}
+.did-you-know b { color: var(--accent); }

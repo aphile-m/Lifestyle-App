@@ -1,0 +1,20 @@
+{
+  "name": "trainer-app",
+  "version": "0.1.0",
+  "description": "Trainer App — Vic, your AI personal trainer (see SPEC.md)",
+  "private": true,
+  "scripts": {
+    "serve": "node serve.js",
+    "sync": "cap sync android",
+    "build:apk": "cd android && gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.4.0",
+    "@capacitor/app": "^8.1.0",
+    "@capacitor/camera": "^8.2.0",
+    "@capacitor/cli": "^8.4.0",
+    "@capacitor/core": "^8.4.0",
+    "@capacitor/local-notifications": "^8.2.0",
+    "@capgo/capacitor-updater": "^8.49.1"
+  }
+}
