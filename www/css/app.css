@@ -117,21 +117,27 @@ body {
 
 /* --- setup journey (onboarding) --- */
 .journey-mode .tabbar { display: none; }
-.journey-mode .screen { padding-bottom: 24px; }
-.journey { display: flex; flex-direction: column; min-height: calc(100vh - 60px); animation: j-in .35s ease; }
+/* size the journey to the SMALL viewport (address bar visible) so the nav button
+   is always on screen without scrolling — 100vh lies on mobile browsers */
+.journey-mode .screen { padding: calc(env(safe-area-inset-top, 0px) + 8px) 16px 12px; }
+.journey {
+  display: flex; flex-direction: column; animation: j-in .35s ease;
+  min-height: calc(100vh - 90px); /* fallback for old browsers */
+  min-height: calc(100svh - env(safe-area-inset-top, 0px) - 24px);
+}
 @keyframes j-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }
 .j-page { flex: 1; }
 .j-center { display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
-.j-hero { font-size: 72px; margin-bottom: 12px; animation: j-pop .5s cubic-bezier(.2,1.6,.4,1); }
+.j-hero { font-size: clamp(52px, 16vw, 72px); margin-bottom: 12px; animation: j-pop .5s cubic-bezier(.2,1.6,.4,1); }
 @keyframes j-pop { from { transform: scale(.4); opacity: 0; } to { transform: none; opacity: 1; } }
 .j-title { font-size: 28px; font-weight: 700; margin-bottom: 10px; }
 .j-tag { color: var(--accent); font-weight: 600; }
 .j-step { font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--accent); margin-bottom: 10px; }
-.j-dots { display: flex; gap: 6px; justify-content: center; margin: 4px 0 18px; }
+.j-dots { display: flex; gap: 6px; justify-content: center; margin: 2px 0 14px; }
 .j-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--card-2); transition: all .25s; }
 .j-dot.on { background: var(--accent); width: 22px; border-radius: 4px; }
 .j-dot.past { background: var(--accent); opacity: .45; }
-.j-nav { display: flex; gap: 10px; margin-top: 18px; padding-bottom: env(safe-area-inset-bottom, 0px); }
+.j-nav { display: flex; gap: 10px; margin-top: 14px; padding-bottom: env(safe-area-inset-bottom, 0px); }
 .j-check { display: flex; gap: 12px; align-items: center; background: var(--card); border-radius: var(--radius); padding: 14px; margin-bottom: 10px; transition: background .3s; }
 .j-check.done { background: color-mix(in srgb, var(--accent) 12%, var(--card)); }
 .j-tick { width: 28px; height: 28px; flex: none; display: flex; align-items: center; justify-content: center; border-radius: 50%; background: var(--card-2); font-weight: 700; }
