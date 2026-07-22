@@ -2,7 +2,7 @@
 
 **Name:** *Trainer App*
 **Platforms:** Android (Capacitor) + Web (installable PWA)
-**Version:** Spec v1.1 — 2026-07-22
+**Version:** Spec v1.2 — 2026-07-22
 **Owner:** Aphile M
 
 ---
@@ -120,6 +120,12 @@ metric.
 - **Me → Progress**: score timeline since baseline (week/month/quarter zoom), stacked
   pillar breakdown showing *which* areas drive each change, and per-pillar drilldowns down
   to the underlying logs.
+- **Impact analysis engine** (industry-standard methodology, per Whoop Journal / Garmin
+  Lifestyle Logging): a behaviour's impact on next-day/next-night metrics is only reported
+  once there are **≥5 "yes" and ≥5 "no" instances within a rolling 90-day window**; shown
+  as effect size on the affected metric ("late caffeine → sleep score −9 on average") with
+  a confidence hint, worded as correlation, never causation. A **monthly impact report**
+  (Whoop MPA-style) ranks your tracked behaviours by measured effect.
 - **Coach insights** (weekly review + on demand): plain-language analysis, always naming
   the biggest win and the biggest drag — "Score up 4: sleep consistency did the work.
   Fuel dipped Thursday–Saturday; want the weekend meal plan adjusted?" Cross-pillar
@@ -237,6 +243,30 @@ module ships dormant until connected.
   caffeine…), streaks shown honestly (streak freezes exist; guilt-tripping doesn't).
 - **Weight & measurements**: trend-weight (7-day EMA) is the headline number, never the
   daily spike; progress photos stored locally/in your Supabase only.
+- **Lifestyle Journal (behaviour tags)** — Whoop-Journal / Garmin-Lifestyle-Logging style,
+  feeding the impact engine (§3.3):
+  - Pick ~5–15 behaviours to track from a catalogue (late caffeine, alcohol, late meal,
+    screens in bed, cold shower, sauna, stretching, reading before bed, illness, injury,
+    travel, late work…); custom tags allowed.
+  - Logged as **one-tap chips inside the evening check-in** — journaling adds seconds, not
+    a new screen to remember.
+  - **Auto-tagging is the differentiator** over Garmin/Whoop, where every tag is manual:
+    the app already *knows* many behaviours — "home-cooked meal" and "late dinner" from
+    cookbook cooked-events and food-log timestamps, "training day"/"double session" from
+    Strava, "travel"/"late meeting" from Calendar, "late caffeine" prompted when a coffee
+    is logged after 14:00. Auto-tags are shown for confirmation, not silently assumed.
+- **Watch data (Garmin Vivoactive 4)** via Android Health Connect (Garmin Connect exports
+  to Health Connect): sleep stages/score, resting HR, stress, Body Battery, steps,
+  Pulse Ox. This makes most of the Recover pillar automatic instead of self-reported.
+  Known device limits: the Vivoactive 4 has **no skin-temperature sensor and no HRV
+  Status**, so those signals are out of scope — and Garmin's own new features may not
+  fully support this older watch, which is exactly why the app runs its *own* journal and
+  impact engine on the watch's raw metrics rather than depending on Garmin Connect's.
+- **Baseline deviation flags** (Garmin Health-Status-inspired): after the calibration
+  period establishes typical ranges for resting HR, sleep score/duration, and stress, the
+  app flags multi-day deviations ("RHR 6 bpm above your baseline for 3 nights") and the
+  coach *acts* on them — easing the plan, suggesting an early night, asking whether you're
+  getting sick — rather than just displaying a warning banner.
 
 ---
 
@@ -290,14 +320,16 @@ Mirrors the cookbook's proven setup, plus a thin sync layer.
 - **AI:** Claude API, bring-your-own key stored on-device (cookbook pattern). Model
   routing: fast/cheap model (Haiku-class) for logging parses and quick answers; stronger
   model for weekly planning and photo nutrition estimates. All coach actions via tool use.
-- **Data:** local-first in IndexedDB (cookbook pattern) with **Supabase** (your existing
-  account) as sync + backup: auth, Postgres for logs/plans/profile, storage for progress
+- **Data:** local-first in IndexedDB (cookbook pattern) with **Supabase — reusing the
+  cookbook app's project (decided)** — as sync + backup: auth, Postgres for logs/plans/profile, storage for progress
   photos. Web and Android stay in sync; the Cookbook Sync Module (§5.5)
   rides the same Supabase project — pantry/recipes/cooked-events in, agreed meal plans and
   shopping items out.
 - **Integrations:** Strava API (OAuth, activity read + webhook later), Google Calendar API
-  (event read/write), Spotify Web API (playlist create), Android Health Connect (steps &
-  sleep, post-MVP).
+  (event read/write), Spotify Web API (playlist create), **Android Health Connect** for
+  Garmin Vivoactive 4 data (sleep, resting HR, stress, Body Battery, steps — Garmin
+  Connect syncs into Health Connect on Android; the Android app relays it to Supabase so
+  the web app sees it too).
 - **Privacy:** no third-party analytics; health data only on-device + your Supabase
   project; API key never leaves the device except to Anthropic; one-tap full export (JSON)
   and delete-everything.
@@ -312,17 +344,21 @@ baseline benchmark, weekly score + pillar breakdown** · coach chat with memory 
 plan generation & adaptive re-planning · workout player with logging + rest timers ·
 Strava read sync · **Cookbook Sync Module: pantry + recipes in, agreed meal plans +
 shopping list out** · recipe nutrition estimates · photo/voice/"cooked from cookbook" food
-logging · daily brief + evening check-in · trend weight · Supabase sync · PWA + Android
-builds with OTA.
+logging · daily brief + evening check-in **with journal quick-tag chips** · trend weight ·
+Health Connect read (Garmin sleep/RHR/stress/Body Battery) · Supabase sync (shared
+cookbook project) · PWA + Android builds with OTA.
 
 **v2 — "holistic"**
-Readiness score + soreness body map · cross-pillar score insights & correlations ·
+Readiness score + soreness body map · **impact analysis engine (5×5/90-day rule) + monthly
+impact report** · **behaviour auto-tagging from cookbook/Strava/Calendar** · **baseline
+deviation flags with coach follow-through** · cross-pillar score insights & correlations ·
 8-week re-benchmark ritual · Google Calendar two-way scheduling · habit tracker · weekly
 review + recap card · Spotify workout playlists · cooked-event auto-logging from the
 cookbook · mobility content.
 
 **v3 — "deeper"**
-Health Connect (sleep/steps) · Strava webhooks (instant sync) · hydration & wind-down
+Strava webhooks (instant sync) · expanded journal catalogue & custom experiments
+("2 weeks no late caffeine — measure it") · hydration & wind-down
 nudges · PR badges & goal countdowns · plate-math and advanced strength analytics ·
 multi-user (family) support if wanted.
 
@@ -338,11 +374,20 @@ multi-user (family) support if wanted.
 - Lifestyle Score meaningfully above baseline at the 8-week re-benchmark, with trend
   weight moving at a sustainable rate (~0.25–0.75 kg/week average).
 
-## 12. Open questions
+## 12. Decisions log
+
+- App name: **Trainer App**. Primary goal: **weight loss through sustainable lifestyle
+  changes**, measured via the Lifestyle Score.
+- Supabase: **reuse the cookbook app's project** (single shared project, RLS per app).
+- Wearable: **Garmin Vivoactive 4** via Health Connect (no skin temp / HRV Status —
+  scoped accordingly).
+- Weight-loss profile: default sustainable band **~0.25–0.75 kg/week** accepted.
+- Cookbook sync: **two-way module** (pantry & recipes in, agreed meal plans & shopping
+  list out).
+- Inspiration reviewed: DC Rainmaker on Garmin Lifestyle Logging / Health Status vs Whoop
+  Journal (2025-09) → adopted journal quick-tags, 5×5/90-day impact methodology, monthly
+  impact report, baseline deviation flags, auto-tagging differentiator.
+
+## 13. Open questions
 
 1. Coach name/persona (app is *Trainer App*; the coach itself still needs a name & voice).
-2. Supabase: reuse an existing project or create a dedicated one?
-3. Wearable in the picture (watch/HR strap) beyond what Strava already captures? (Affects
-   how much of Recover can be automatic vs. self-reported in the score.)
-4. Sustainable target rate for the weight-loss profile — agree the kg/week band with the
-   coach at onboarding, or fix a default?
