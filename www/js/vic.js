@@ -8,6 +8,38 @@ import { activePlan, sessionForToday, latestMeasurement, latestBenchmark } from 
 
 const MODEL = 'claude-opus-4-8';
 
+/* Generic Claude call reused by food vision, nutrition estimates and meal planning.
+   content may be a string or an array of content blocks (e.g. image + text). */
+export async function claude(content, { system, maxTokens = 2000 } = {}) {
+  const apiKey = settings.apiKey;
+  if (!apiKey) throw new Error('NO_KEY');
+  const res = await fetch('https://api.anthropic.com/v1/messages', {
+    method: 'POST',
+    headers: {
+      'content-type': 'application/json',
+      'x-api-key': apiKey,
+      'anthropic-version': '2023-06-01',
+      'anthropic-dangerous-direct-browser-access': 'true',
+    },
+    body: JSON.stringify({
+      model: MODEL, max_tokens: maxTokens,
+      ...(system ? { system } : {}),
+      messages: [{ role: 'user', content }],
+    }),
+  });
+  if (!res.ok) {
+    let detail = '';
+    try { detail = (await res.json())?.error?.message || ''; } catch {}
+    throw new Error(`AI request failed (${res.status}). ${detail.slice(0, 140)}`);
+  }
+  const data = await res.json();
+  return (data.content || []).find(b => b.type === 'text')?.text.trim() || '';
+}
+
+export function parseJson(text) {
+  return JSON.parse(text.replace(/^```(json)?\s*/i, '').replace(/```\s*$/, ''));
+}
+
 function personaPrompt(profile, context) {
   return `You are Vic, ${profile.name}'s AI personal trainer inside their Trainer App.
 

@@ -1,9 +1,9 @@
 /* Trainer App service worker — cache-first shell, network-first for everything else */
-const CACHE = 'trainer-v3';
+const CACHE = 'trainer-v4';
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/store.js', 'js/vic.js', 'js/score.js', 'js/ui.js',
-  'js/plan.js', 'js/sync.js',
+  'js/plan.js', 'js/sync.js', 'js/fuel.js', 'js/strava.js',
   'icon-192.png', 'icon-512.png',
 ];
 

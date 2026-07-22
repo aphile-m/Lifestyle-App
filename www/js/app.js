@@ -5,7 +5,9 @@ import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, trendWeight, WEIGHTS } from './score.js';
 import { askVic } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
-import { syncReady, signedIn, signUp, signIn, pushAll, pushProfile, syncConfig } from './sync.js';
+import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
+import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
+import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, importActivities } from './strava.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
 
@@ -20,7 +22,33 @@ function go(tab) {
 }
 
 document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
+
+// first boot: start the calibration clock (SPEC §3.1)
+if (!settings.profile.baselineStart) {
+  settings.save({ profile: { ...defaultProfile(), ...settings.profile, baselineStart: new Date().toISOString().slice(0, 10) } });
+}
+// complete a Strava OAuth redirect if we arrived with ?code=
+handleStravaRedirect().then(ok => { if (ok) toast('Strava connected.'); }).catch(e => toast('Strava: ' + e.message));
+
 go(localStorage.getItem('trainer_tab') || 'today');
+
+/* Weekly Lifestyle Score history: upsert this week's score; lock the earliest row as
+   the baseline once the calibration fortnight has passed (SPEC §3.1/§3.2). */
+async function pushWeeklyScore(aggregate, pillars) {
+  if (aggregate === null || !syncReady() || !signedIn()) return;
+  const monday = (d => { d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })(new Date());
+  try {
+    await restUpsert('trainer_scores', [{ week_start: monday, aggregate, pillars }], 'user_id,week_start');
+    const start = settings.profile.baselineStart;
+    if (start && (Date.now() - Date.parse(start)) / 86400e3 >= 14) {
+      const rows = await restGet('trainer_scores', 'select=id,week_start,is_baseline&order=week_start&limit=1');
+      if (rows[0] && !rows[0].is_baseline) {
+        const any = await restGet('trainer_scores', 'select=id&is_baseline=eq.true&limit=1');
+        if (!any.length) await restPatch('trainer_scores', `id=eq.${rows[0].id}`, { is_baseline: true });
+      }
+    }
+  } catch {}
+}
 
 /* ---------------- Today ---------------- */
 async function today(root) {
@@ -35,6 +63,7 @@ async function today(root) {
       el('span', { class: 'bar' }, el('i', { style: `width:${v ?? 0}%` })),
       el('span', { class: 'val' }, v === null ? '–' : String(v)));
   });
+  pushWeeklyScore(aggregate, pillars);
   root.append(el('div', { class: 'card' },
     el('h2', {}, 'Lifestyle Score — this week'),
     el('div', { class: 'score-wrap' }, scoreRing(aggregate), el('div', { class: 'pillars' }, ...pillarRows)),
@@ -351,12 +380,127 @@ function ratingRow10() {
 /* ---------------- Fuel ---------------- */
 async function fuel(root) {
   root.append(el('h1', { class: 'h-page' }, 'Fuel'));
+
   const foods = await logs.recent('foods', 7);
+  const todayKcal = foods.filter(f => f.ts.slice(0, 10) === new Date().toISOString().slice(0, 10))
+    .reduce((a, f) => a + (f.kcal || 0), 0);
   root.append(el('div', { class: 'card' },
     el('h2', {}, 'This week'),
-    el('p', {}, `${foods.length} meal${foods.length === 1 ? '' : 's'} logged.`),
-    el('p', { class: 'muted' }, 'Cookbook sync (pantry in, meal plans out), photo logging, and macro targets land next (SPEC §5). Manual logging counts toward calibration.'),
-    el('button', { class: 'btn', style: 'margin-top:10px', onclick: () => logMealSheet() }, 'Log a meal')));
+    el('p', {}, `${foods.length} meal${foods.length === 1 ? '' : 's'} logged` +
+      (todayKcal ? ` · ~${todayKcal} kcal today` : '')),
+    el('div', { class: 'chips', style: 'margin-top:10px' },
+      el('button', { class: 'chip', onclick: photoLogSheet }, '📸 Photo log'),
+      el('button', { class: 'chip', onclick: () => logMealSheet() }, '✏️ Log a meal'))));
+
+  // This week's meal plan (SPEC §5.2): draft -> agree -> pushed to the cookbook
+  const plan = await currentMealPlan();
+  const planCard = el('div', { class: 'card' }, el('h2', {}, 'Meal plan — this week'));
+  if (plan) {
+    for (const d of plan.days) {
+      planCard.append(el('p', { style: 'margin:3px 0' },
+        el('b', {}, d.day + ': '), `${d.meal}${d.kcal ? ` · ~${d.kcal} kcal` : ''}`));
+    }
+    planCard.append(el('p', { class: 'muted', style: 'margin-top:6px' },
+      'Agreed — it’s in the cookbook with the shopping list.'));
+  } else {
+    const btn = el('button', { class: 'btn', style: 'margin-top:6px' }, 'Vic, draft this week');
+    btn.addEventListener('click', async () => {
+      if (!settings.apiKey) { apiKeySheet(); return; }
+      btn.disabled = true; btn.textContent = 'Vic is planning…';
+      try { mealPlanDraftSheet(await draftMealPlan()); }
+      catch (e) { toast(e.message === 'NO_KEY' ? 'Add your API key first.' : e.message); }
+      btn.disabled = false; btn.textContent = 'Vic, draft this week';
+    });
+    planCard.append(el('p', { class: 'muted' },
+      'Vic drafts dinners from your cookbook recipes and live pantry, macro-matched to training days. You agree it before anything syncs.'), btn);
+  }
+  root.append(planCard);
+
+  // Cookbook recipes (shared_recipes)
+  const recCard = el('div', { class: 'card' }, el('h2', {}, 'My cookbook recipes'));
+  if (!signedIn()) {
+    recCard.append(el('p', { class: 'muted' }, 'Sign in to cloud sync (Me → Settings) to see recipes synced from the cookbook.'));
+  } else {
+    try {
+      const recipes = await fetchRecipes();
+      if (!recipes.length) {
+        recCard.append(el('p', { class: 'muted' }, 'No recipes synced yet — run a sync from the cookbook app.'));
+      }
+      for (const r of recipes.slice(0, 12)) {
+        const row = el('div', { class: 'row', style: 'margin:6px 0' },
+          el('span', { class: 'grow' }, r.title,
+            r.nutrition ? el('span', { class: 'muted' }, ` · ${r.nutrition.kcal} kcal/serv`) : ''));
+        if (r.nutrition) {
+          row.append(el('button', {
+            class: 'chip', onclick: async () => {
+              await logs.add('foods', { desc: r.title, source: 'cookbook', recipeId: r.id,
+                kcal: r.nutrition.kcal, protein: r.nutrition.protein_g, carbs: r.nutrition.carbs_g, fat: r.nutrition.fat_g });
+              toast('Logged a serving.'); trySync(); go('fuel');
+            },
+          }, 'Cooked this'));
+        } else {
+          row.append(el('button', {
+            class: 'chip', onclick: async e => {
+              e.target.textContent = 'Estimating…'; e.target.disabled = true;
+              try { await estimateNutrition(r.id); go('fuel'); }
+              catch (err) { toast(err.message); e.target.textContent = 'Estimate'; e.target.disabled = false; }
+            },
+          }, 'Estimate'));
+        }
+        recCard.append(row);
+      }
+    } catch (e) {
+      recCard.append(el('p', { class: 'muted' }, '⚠️ ' + e.message));
+    }
+  }
+  root.append(recCard);
+}
+
+function mealPlanDraftSheet(draft) {
+  const close = sheet('Vic’s draft — agree it?',
+    ...draft.days.map(d => el('p', { style: 'margin:4px 0' },
+      el('b', {}, d.day + ': '), `${d.meal}${d.kcal ? ` · ~${d.kcal} kcal` : ''}`)),
+    el('p', { class: 'muted', style: 'margin-top:8px' },
+      `Shopping list: ${(draft.shopping || []).length} items (pantry already excluded).`),
+    el('div', { class: 'chips', style: 'margin-top:10px' },
+      el('button', {
+        class: 'btn', onclick: async () => {
+          try {
+            const r = await agreeMealPlan(draft);
+            close(); toast(r.pushed ? `Agreed — sent to the cookbook (${r.items} shopping items).` : 'Agreed — saved locally (sign in to push to the cookbook).');
+            go('fuel');
+          } catch (e) { toast(e.message); }
+        },
+      }, 'Agree ✓'),
+      el('button', { class: 'chip', onclick: () => { close(); toast('Draft discarded — ask Vic again anytime.'); } }, 'Discard')));
+}
+
+function photoLogSheet() {
+  const input = el('input', { type: 'file', accept: 'image/*', capture: 'environment' });
+  const status = el('p', { class: 'muted', style: 'margin-top:8px' }, 'Snap the plate — Claude estimates portions and macros; you confirm.');
+  const close = sheet('Photo log',
+    el('div', { class: 'field' }, input), status);
+  input.addEventListener('change', async () => {
+    if (!input.files?.[0]) return;
+    if (!settings.apiKey) { close(); apiKeySheet(); return; }
+    status.textContent = 'Estimating…';
+    try {
+      const est = await estimateMealFromPhoto(await downscaleImage(input.files[0]));
+      close();
+      const desc = el('input', { value: est.desc || '' });
+      const kcal = el('input', { type: 'number', value: est.kcal ?? '' });
+      const close2 = sheet('Confirm meal',
+        el('div', { class: 'field' }, el('label', {}, 'What is it?'), desc),
+        el('div', { class: 'field' }, el('label', {}, `kcal (protein ${est.protein_g}g · carbs ${est.carbs_g}g · fat ${est.fat_g}g · confidence ${est.confidence})`), kcal),
+        el('button', {
+          class: 'btn', onclick: async () => {
+            await logs.add('foods', { desc: desc.value.trim() || 'Meal (photo)', source: 'photo',
+              kcal: parseInt(kcal.value) || null, protein: est.protein_g, carbs: est.carbs_g, fat: est.fat_g });
+            close2(); toast('Meal logged.'); trySync(); go('fuel');
+          },
+        }, 'Log it'));
+    } catch (e) { status.textContent = '⚠️ ' + e.message; }
+  });
 }
 
 /* ---------------- Me ---------------- */
@@ -404,7 +548,10 @@ async function me(root) {
       el('button', { class: 'chip', onclick: apiKeySheet },
         settings.apiKey ? 'Anthropic API key ✓' : 'Add Anthropic API key'),
       el('button', { class: 'chip', onclick: cloudSheet },
-        signedIn() ? 'Cloud sync ✓' : 'Set up cloud sync'))));
+        signedIn() ? 'Cloud sync ✓' : 'Set up cloud sync'),
+      el('button', { class: 'chip', onclick: stravaSheet },
+        stravaConnected() ? 'Strava ✓' : 'Connect Strava'),
+      el('button', { class: 'chip', onclick: metricsSheet }, '⌚ Garmin day log'))));
 }
 
 const fmtMinSec = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
@@ -563,6 +710,25 @@ function cloudSheet() {
       el('button', { class: 'chip', onclick: doAuth(signIn) }, 'Sign in'),
       el('button', {
         class: 'chip', onclick: async () => {
+          if (!signedIn()) return toast('Sign in first.');
+          if (!pass.value || pass.value.length < 8) return toast('Type a NEW password (8+ chars) in the password field first.');
+          try { await changePassword(pass.value); status.textContent = 'Password changed ✓'; pass.value = ''; }
+          catch (e) { status.textContent = '⚠️ ' + e.message; }
+        },
+      }, 'Change password'),
+      el('button', {
+        class: 'chip', onclick: async () => {
+          if (!signedIn()) return toast('Sign in first.');
+          status.textContent = 'Restoring…';
+          try {
+            const counts = await pullAll();
+            const total = Object.values(counts).reduce((a, b) => a + b, 0);
+            status.textContent = total ? `Restored ${total} entries from the cloud.` : 'Nothing to restore — local data already present.';
+          } catch (e) { status.textContent = '⚠️ ' + e.message; }
+        },
+      }, 'Restore from cloud'),
+      el('button', {
+        class: 'chip', onclick: async () => {
           try {
             const counts = await pushAll();
             status.textContent = 'Synced: ' + (Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new');
@@ -577,6 +743,62 @@ function cloudSheet() {
 /* Fire-and-forget push after any log write; silent when sync isn't set up */
 function trySync() {
   if (syncReady() && signedIn()) pushAll().catch(() => {});
+}
+
+function metricsSheet() {
+  const f = {
+    sleepScore: numField('Sleep score (0–100, from Garmin Connect)', 'e.g. 78', { step: '1' }),
+    restingHr: numField('Resting HR (bpm)', 'e.g. 62', { step: '1' }),
+    stress: numField('Avg stress (0–100)', 'e.g. 32', { step: '1' }),
+    bodyBattery: numField('Body Battery high', 'e.g. 85', { step: '1' }),
+    steps: numField('Steps', 'e.g. 9500', { step: '1' }),
+  };
+  const close = sheet('Garmin day log',
+    el('p', { class: 'muted', style: 'margin-bottom:12px' },
+      'Copy today’s numbers from Garmin Connect (30 seconds). Automatic Health Connect sync replaces this once the Android build ships — see BACKLOG.md.'),
+    ...Object.values(f).map(x => x.row),
+    el('button', {
+      class: 'btn', onclick: async () => {
+        const vals = Object.fromEntries(Object.entries(f).map(([k, x]) => [k, x.value()]));
+        if (!Object.values(vals).some(v => v)) return toast('At least one number.');
+        await logs.add('metrics', vals);
+        close(); toast('Day logged. Recover pillar sees it.'); trySync(); go('me');
+      },
+    }, 'Save'));
+}
+
+function stravaSheet() {
+  const s = settings.load();
+  const id = el('input', { value: s.stravaClientId || '', placeholder: 'Client ID', inputmode: 'numeric' });
+  const secret = el('input', { type: 'password', value: s.stravaClientSecret || '', placeholder: 'Client secret' });
+  const status = el('p', { class: 'muted', style: 'margin-top:10px' },
+    stravaConnected() ? 'Connected ✓' : 'Not connected.');
+  sheet('Strava',
+    el('p', { class: 'muted', style: 'margin-bottom:12px' },
+      'Create your own (free) API app at strava.com/settings/api — set Authorization Callback Domain to aphile-m.github.io — then paste its credentials here. They stay on this device.'),
+    el('div', { class: 'field' }, el('label', {}, 'Client ID'), id),
+    el('div', { class: 'field' }, el('label', {}, 'Client secret'), secret),
+    el('div', { class: 'chips' },
+      el('button', {
+        class: 'chip', onclick: () => {
+          settings.save({ stravaClientId: id.value.trim(), stravaClientSecret: secret.value.trim() });
+          if (!stravaConfigured()) return toast('Both fields first.');
+          connectStrava();
+        },
+      }, stravaConnected() ? 'Reconnect' : 'Connect Strava'),
+      el('button', {
+        class: 'chip', onclick: async e => {
+          if (!stravaConnected()) return toast('Connect first.');
+          e.target.textContent = 'Importing…';
+          try {
+            const n = await importActivities();
+            status.textContent = n ? `Imported ${n} new activit${n === 1 ? 'y' : 'ies'} ✓` : 'Nothing new to import.';
+            trySync();
+          } catch (err) { status.textContent = '⚠️ ' + err.message; }
+          e.target.textContent = 'Import activities';
+        },
+      }, 'Import activities')),
+    status);
 }
 
 function profileSheet() {

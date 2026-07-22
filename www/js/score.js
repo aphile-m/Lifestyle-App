@@ -16,16 +16,16 @@ export const WEIGHTS = {
    (null = not enough data yet; pillar is excluded and weights renormalise,
    so missing sensors never read as "failing"). */
 export async function weeklyScore() {
-  const [workouts, foods, checkins, journal, weights] = await Promise.all([
+  const [workouts, foods, checkins, journal, weights, metrics] = await Promise.all([
     logs.recent('workouts', 7), logs.recent('foods', 7),
     logs.recent('checkins', 7), logs.recent('journal', 7),
-    logs.recent('weights', 28),
+    logs.recent('weights', 28), logs.recent('metrics', 7),
   ]);
 
   const pillars = {
     move: pillarMove(workouts),
     fuel: pillarFuel(foods),
-    recover: pillarRecover(checkins),
+    recover: pillarRecover(checkins, metrics),
     consistency: pillarConsistency([workouts, foods, checkins, journal]),
     body: pillarBody(weights),
   };
@@ -56,13 +56,19 @@ function pillarFuel(foods) {
   return clamp(Math.round((daysLogged / 7) * 70 + homeCooked * 30));
 }
 
-function pillarRecover(checkins) {
-  if (!checkins.length) return null;
-  // v0: mean of self-reported sleep + energy (1–5 scales) until Health Connect lands
+function pillarRecover(checkins, metrics = []) {
+  if (!checkins.length && !metrics.length) return null;
   const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
-  const sleep = mean(checkins.map(c => c.sleep ?? 3));
-  const energy = mean(checkins.map(c => c.energy ?? 3));
-  return clamp(Math.round(((sleep + energy) / 2 - 1) / 4 * 100));
+  const parts = [];
+  if (checkins.length) {
+    const sleep = mean(checkins.map(c => c.sleep ?? 3));
+    const energy = mean(checkins.map(c => c.energy ?? 3));
+    parts.push(((sleep + energy) / 2 - 1) / 4 * 100);
+  }
+  // Garmin day logs (sleep score + Body Battery are already 0–100 scales)
+  const garmin = metrics.flatMap(m => [m.sleepScore, m.bodyBattery]).filter(v => v != null);
+  if (garmin.length) parts.push(mean(garmin));
+  return clamp(Math.round(mean(parts)));
 }
 
 function pillarConsistency(streams) {

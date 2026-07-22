@@ -33,10 +33,10 @@ export function defaultProfile() {
 
 /* ---------- IndexedDB ---------- */
 const DB_NAME = 'trainer';
-const DB_VER = 2;
+const DB_VER = 3;
 // One store per log type; all rows: { id, ts (ISO), ...payload }
 const STORES = ['weights', 'foods', 'workouts', 'journal', 'checkins', 'scores', 'chat',
-  'measurements', 'benchmarks', 'plans'];
+  'measurements', 'benchmarks', 'plans', 'metrics', 'mealplans'];
 
 let dbp = null;
 function db() {

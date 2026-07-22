@@ -1,9 +1,8 @@
 /* sync.js — Supabase cloud sync (SPEC §9), no SDK: GoTrue auth + PostgREST via fetch.
    Local-first: IndexedDB is truth on this device; unsynced rows are pushed and marked
-   with a `synced` flag. Config (url/anon key) ships in settings so it can be filled
-   once the host project is chosen. */
+   with a `synced` flag. pullAll() rehydrates an empty fresh device from the cloud. */
 
-import { settings, logs } from './store.js';
+import { settings, logs, defaultProfile } from './store.js';
 
 /* Shared project defaults (host: "Vinyl Database" project, decided 2026-07-22).
    The publishable key is safe to ship client-side — RLS guards every row. */
@@ -22,11 +21,15 @@ export const syncReady = () => { const c = syncConfig(); return !!(c.url && c.an
 export const signedIn = () => !!syncConfig().session;
 
 /* ---------- auth (email + password) ---------- */
-async function authFetch(path, body) {
+async function authFetch(path, body, bearer) {
   const { url, anonKey } = syncConfig();
   const res = await fetch(`${url}/auth/v1/${path}`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/json', apikey: anonKey },
+    method: bearer ? 'PUT' : 'POST',
+    headers: {
+      'content-type': 'application/json',
+      apikey: anonKey,
+      ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
+    },
     body: JSON.stringify(body),
   });
   const data = await res.json().catch(() => ({}));
@@ -43,6 +46,9 @@ export async function signIn(email, password) {
   const d = await authFetch('token?grant_type=password', { email, password });
   saveSession(d);
   return d;
+}
+export async function changePassword(newPassword) {
+  await authFetch('user', { password: newPassword }, await token());
 }
 function saveSession(d) {
   settings.save({
@@ -82,19 +88,63 @@ async function rest(method, table, body, query = '') {
   return res.status === 204 ? null : res.json();
 }
 
-/* ---------- mappers: IndexedDB store -> table rows ---------- */
+export async function restGet(table, query = '') {
+  const { url, anonKey } = syncConfig();
+  const res = await fetch(`${url}/rest/v1/${table}?${query}`, {
+    headers: { apikey: anonKey, authorization: `Bearer ${await token()}` },
+  });
+  if (!res.ok) throw new Error(`${table}: fetch failed (${res.status})`);
+  return res.json();
+}
+export const restUpsert = (table, rows, onConflict) =>
+  rest('POST', table + (onConflict ? `?on_conflict=${onConflict}` : ''), rows);
+export const restPatch = (table, query, patch) => rest('PATCH', table, patch, `?${query}`);
+
+/* ---------- mappers: IndexedDB store <-> table rows ---------- */
 const day = ts => ts.slice(0, 10);
 const MAP = {
-  weights:      r => ['trainer_weights', { ts: r.ts, kg: r.kg }],
-  foods:        r => ['trainer_food_logs', { ts: r.ts, description: r.desc, source: r.source || 'manual' }],
-  workouts:     r => ['trainer_workouts', { ts: r.ts, description: r.desc, rpe: r.rpe ?? null, planned: !!r.planned, detail: r.detail || {} }],
-  checkins:     r => ['trainer_checkins?on_conflict=user_id,day', { day: day(r.ts), sleep_1_5: r.sleep ?? null, energy_1_5: r.energy ?? null }],
-  measurements: r => ['trainer_measurements', { ts: r.ts, waist_cm: r.waist ?? null, hips_cm: r.hips ?? null, chest_cm: r.chest ?? null, arm_cm: r.arm ?? null, thigh_cm: r.thigh ?? null }],
-  benchmarks:   r => ['trainer_benchmarks', { ts: r.ts, resting_hr: r.restingHr ?? null, run_1600m_sec: r.runSec ?? null, pushups_max: r.pushups ?? null, plank_sec: r.plankSec ?? null, goblet_squat_reps: r.squatReps ?? null, goblet_squat_kg: r.squatKg ?? null }],
-  plans:        r => ['trainer_plans', { created_at: r.ts, active: !!r.active, month_theme: r.plan?.month_theme || null, start_date: r.plan?.start_date || null, plan: r.plan }],
+  weights: {
+    table: 'trainer_weights',
+    up: r => ({ ts: r.ts, kg: r.kg }),
+    down: t => ({ ts: t.ts, kg: Number(t.kg) }),
+  },
+  foods: {
+    table: 'trainer_food_logs',
+    up: r => ({ ts: r.ts, description: r.desc, source: r.source || 'manual', kcal: r.kcal ?? null, protein_g: r.protein ?? null, carbs_g: r.carbs ?? null, fat_g: r.fat ?? null, recipe_id: r.recipeId ?? null, servings: r.servings ?? 1 }),
+    down: t => ({ ts: t.ts, desc: t.description, source: t.source, kcal: t.kcal, protein: t.protein_g, carbs: t.carbs_g, fat: t.fat_g, recipeId: t.recipe_id }),
+  },
+  workouts: {
+    table: 'trainer_workouts',
+    up: r => ({ ts: r.ts, description: r.desc, rpe: r.rpe ?? null, planned: !!r.planned, detail: r.detail || {}, strava_id: r.stravaId ?? null }),
+    down: t => ({ ts: t.ts, desc: t.description, rpe: t.rpe, planned: t.planned, detail: t.detail, stravaId: t.strava_id }),
+  },
+  checkins: {
+    table: 'trainer_checkins', conflict: 'user_id,day',
+    up: r => ({ day: day(r.ts), sleep_1_5: r.sleep ?? null, energy_1_5: r.energy ?? null }),
+    down: t => ({ ts: t.day + 'T12:00:00.000Z', sleep: t.sleep_1_5, energy: t.energy_1_5 }),
+  },
+  measurements: {
+    table: 'trainer_measurements',
+    up: r => ({ ts: r.ts, waist_cm: r.waist ?? null, hips_cm: r.hips ?? null, chest_cm: r.chest ?? null, arm_cm: r.arm ?? null, thigh_cm: r.thigh ?? null }),
+    down: t => ({ ts: t.ts, waist: t.waist_cm && +t.waist_cm, hips: t.hips_cm && +t.hips_cm, chest: t.chest_cm && +t.chest_cm, arm: t.arm_cm && +t.arm_cm, thigh: t.thigh_cm && +t.thigh_cm }),
+  },
+  benchmarks: {
+    table: 'trainer_benchmarks',
+    up: r => ({ ts: r.ts, resting_hr: r.restingHr ?? null, run_1600m_sec: r.runSec ?? null, pushups_max: r.pushups ?? null, plank_sec: r.plankSec ?? null, goblet_squat_reps: r.squatReps ?? null, goblet_squat_kg: r.squatKg ?? null }),
+    down: t => ({ ts: t.ts, restingHr: t.resting_hr, runSec: t.run_1600m_sec, pushups: t.pushups_max, plankSec: t.plank_sec, squatReps: t.goblet_squat_reps, squatKg: t.goblet_squat_kg && +t.goblet_squat_kg }),
+  },
+  metrics: {
+    table: 'trainer_daily_metrics', conflict: 'user_id,day',
+    up: r => ({ day: day(r.ts), sleep_score: r.sleepScore ?? null, resting_hr: r.restingHr ?? null, stress_avg: r.stress ?? null, body_battery_high: r.bodyBattery ?? null, steps: r.steps ?? null }),
+    down: t => ({ ts: t.day + 'T12:00:00.000Z', sleepScore: t.sleep_score, restingHr: t.resting_hr, stress: t.stress_avg, bodyBattery: t.body_battery_high, steps: t.steps }),
+  },
+  plans: {
+    table: 'trainer_plans',
+    up: r => ({ created_at: r.ts, active: !!r.active, month_theme: r.plan?.month_theme || null, start_date: r.plan?.start_date || null, plan: r.plan }),
+    down: t => ({ ts: t.created_at, active: t.active, plan: t.plan }),
+  },
 };
 
-/* journal rows expand to one table row per tag */
 function journalRows(r) {
   return (r.tags || []).map(tag => ({ day: day(r.ts), tag, auto: false }));
 }
@@ -103,24 +153,52 @@ function journalRows(r) {
 export async function pushAll() {
   if (!syncReady() || !signedIn()) throw new Error('NOT_SIGNED_IN');
   const counts = {};
-  for (const [store, map] of Object.entries(MAP)) {
+  for (const [store, m] of Object.entries(MAP)) {
     const rows = (await logs.all(store)).filter(r => !r.synced);
     if (rows.length) {
-      // group by target (checkins carry an on_conflict query)
-      const [table] = map(rows[0]);
-      await rest('POST', table, rows.map(r => map(r)[1]));
+      await rest('POST', m.table + (m.conflict ? `?on_conflict=${m.conflict}` : ''), rows.map(m.up));
       for (const r of rows) await logs.put(store, { ...r, synced: true });
     }
     counts[store] = rows.length;
   }
   const jrows = (await logs.all('journal')).filter(r => !r.synced);
   const expanded = jrows.flatMap(journalRows);
-  if (expanded.length) {
-    await rest('POST', 'trainer_journal_tags?on_conflict=user_id,day,tag', expanded);
-    for (const r of jrows) await logs.put('journal', { ...r, synced: true });
-  }
+  if (expanded.length) await rest('POST', 'trainer_journal_tags?on_conflict=user_id,day,tag', expanded);
+  for (const r of jrows) await logs.put('journal', { ...r, synced: true });
   counts.journal = jrows.length;
   settings.save({ lastSync: new Date().toISOString() });
+  return counts;
+}
+
+/* Pull-restore: for every EMPTY local store, rehydrate from the cloud (fresh device).
+   Non-empty stores are left alone — local is truth on this device. */
+export async function pullAll() {
+  if (!syncReady() || !signedIn()) throw new Error('NOT_SIGNED_IN');
+  const counts = {};
+  for (const [store, m] of Object.entries(MAP)) {
+    const local = await logs.all(store);
+    if (local.length) { counts[store] = 0; continue; }
+    const remote = await restGet(m.table, 'select=*&order=' + (m.conflict ? 'day' : m.table === 'trainer_plans' ? 'created_at' : 'ts'));
+    for (const t of remote) await logs.add(store, { ...m.down(t), synced: true });
+    counts[store] = remote.length;
+  }
+  if (!(await logs.all('journal')).length) {
+    const tags = await restGet('trainer_journal_tags', 'select=*&order=day');
+    const byDay = {};
+    for (const t of tags) (byDay[t.day] ||= []).push(t.tag);
+    for (const [d, list] of Object.entries(byDay)) {
+      await logs.add('journal', { ts: d + 'T20:00:00.000Z', tags: list, synced: true });
+    }
+    counts.journal = tags.length;
+  }
+  // profile: adopt the cloud copy if local is still default
+  const s = settings.load();
+  if (!s.profile) {
+    const prof = await restGet('trainer_profile', 'select=profile');
+    if (prof[0]?.profile && Object.keys(prof[0].profile).length) {
+      settings.save({ profile: { ...defaultProfile(), ...prof[0].profile } });
+    }
+  }
   return counts;
 }
 
