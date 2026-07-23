@@ -10,6 +10,7 @@ import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentM
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, importActivities } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney } from './onboarding.js';
 import { vicAvatar } from './vic-avatar.js';
+import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
@@ -69,7 +70,7 @@ async function today(root) {
     el('div', {},
       el('h1', { class: 'hey' }, `Hey ${settings.profile.name}! 👋`),
       el('p', { class: 'hey-sub' }, todayGreeting())),
-    vicAvatar(5)));
+    vicSprite(84)));
 
   // Lifestyle Score card
   const { aggregate, pillars } = await weeklyScore();
@@ -170,7 +171,7 @@ async function coach(root) {
     el('div', {},
       el('h1', { class: 'hey' }, 'Vic'),
       el('p', { class: 'hey-sub', style: 'margin-bottom:0' }, '● AI Personal Trainer')),
-    vicAvatar(5)));
+    vicSprite(84)));
   const chat = el('div', { class: 'chat' });
   root.append(chat);
 

@@ -183,3 +183,12 @@ body {
 .ex-px .exf-2 { animation: exf-b 1.1s steps(1) infinite; }
 @keyframes exf-a { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
 @keyframes exf-b { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
+
+/* --- Street Fighter Vic (sprite strip, 8 frames) --- */
+.vic-sprite {
+  background: url('../img/vic-idle.png') 0 0 no-repeat;
+  background-size: calc(var(--vsw) * 8) 100%;
+  animation: vs-play 1.15s steps(8) infinite;
+  filter: drop-shadow(0 8px 22px rgba(163, 230, 53, .16));
+}
+@keyframes vs-play { to { background-position-x: calc(var(--vsw) * -8); } }
