@@ -52,7 +52,7 @@ async function gates() {
 
 /* ---------- building blocks ---------- */
 const vicSays = (...lines) => el('div', { class: 'vic-bubble' },
-  el('div', { class: 'vic-face' }, vicAvatar(3, 'still')),
+  el('div', { class: 'vic-face' }, vicSprite(52, 'still')),
   el('div', {}, ...lines.map(l => el('p', {}, l))));
 
 function checkRow(done, label, sub, btnLabel, onclick) {

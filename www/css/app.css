@@ -1,5 +1,6 @@
 /* Trainer App — dark, energetic, one-hand friendly */
 :root {
+  color-scheme: dark; /* stop force-dark browser modes from inverting the SVG art */
   --bg: #0A0D08;         /* near-black, green-tinted (VIC inspo) */
   --card: #12160E;
   --card-2: #1C2314;
@@ -185,6 +186,7 @@ body {
 @keyframes exf-b { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }
 
 /* --- Street Fighter Vic (sprite strip, 8 frames) --- */
+.vic-sprite.still { animation: none; }
 .vic-sprite {
   background: url('../img/vic-idle.png') 0 0 no-repeat;
   background-size: calc(var(--vsw) * 8) 100%;
