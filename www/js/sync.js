@@ -60,6 +60,9 @@ function saveSession(d) {
     },
   });
 }
+/* Exported: always returns a FRESH access token (auto-refreshes near expiry). */
+export async function accessToken() { return token(); }
+
 async function token() {
   let { session } = syncConfig();
   if (!session) throw new Error('NOT_SIGNED_IN');

@@ -5,7 +5,7 @@
    secret in the Strava sheet (stored on-device only). */
 
 import { settings, logs } from './store.js';
-import { syncConfig } from './sync.js';
+import { syncConfig, signedIn, accessToken as supabaseToken } from './sync.js';
 
 const cfg = () => {
   const s = settings.load();
@@ -15,13 +15,14 @@ export const stravaConfigured = () => !!(cfg().clientId && cfg().clientSecret);
 export const stravaConnected = () => !!cfg().tokens;
 
 async function proxy(body) {
-  const { url, anonKey, session } = syncConfig();
+  if (!signedIn()) throw new Error('Sign in to Cloud sync first (Me → Settings) — Strava routes through your secure proxy.');
+  const { url, anonKey } = syncConfig();
   const res = await fetch(`${url}/functions/v1/strava-proxy`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
       apikey: anonKey,
-      authorization: `Bearer ${session?.access_token || anonKey}`,
+      authorization: `Bearer ${await supabaseToken()}`, // fresh JWT — auto-refreshed
     },
     body: JSON.stringify(body),
   });
