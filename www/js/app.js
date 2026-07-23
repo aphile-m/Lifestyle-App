@@ -7,7 +7,7 @@ import { askVic } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
 import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
-import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, importActivities } from './strava.js';
+import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney } from './onboarding.js';
 import { vicAvatar } from './vic-avatar.js';
 import { vicSprite } from './vic-sprite.js';
@@ -719,6 +719,7 @@ function cloudSheet() {
         return;
       }
       status.textContent = 'Signed in ✓ — syncing…';
+      completePendingStrava().then(ok => { if (ok) toast('Strava connected ✓'); }).catch(e => toast('Strava: ' + e.message));
       const counts = await pushAll(); await pushProfile();
       status.textContent = 'Synced: ' + (Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new');
       toast('Cloud sync on.');
@@ -802,6 +803,8 @@ function stravaSheet() {
   const secret = el('input', { type: 'password', value: s.stravaClientSecret || '', placeholder: 'Client secret' });
   const status = el('p', { class: 'muted', style: 'margin-top:10px' },
     stravaConnected() ? 'Connected ✓' : 'Not connected.');
+  completePendingStrava().then(ok => { if (ok) status.textContent = 'Connected ✓'; })
+    .catch(e => { status.textContent = '⚠️ ' + e.message; });
   const guide = el('div', { class: 'muted', style: 'font-size:13px;margin-bottom:12px' },
     el('p', { style: 'margin-bottom:6px' }, el('b', {}, 'One-time setup (~2 min):')),
     el('p', {}, '1. Sign in to Cloud sync first (required — Strava calls route through your secure proxy).'),

@@ -11,7 +11,8 @@ const MIME = {
   '.svg': 'image/svg+xml',
 };
 http.createServer((req, res) => {
-  const rel = req.url === '/' ? 'index.html' : decodeURIComponent(req.url.split('?')[0]);
+  let rel = decodeURIComponent(req.url.split('?')[0]);
+  if (rel === '/' || rel === '') rel = 'index.html';
   const p = path.join(root, rel);
   if (!p.startsWith(root)) { res.writeHead(403); res.end(); return; }
   fs.readFile(p, (e, d) => {

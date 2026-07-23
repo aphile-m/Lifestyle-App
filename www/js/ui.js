@@ -45,9 +45,10 @@ export function sheet(title, ...children) {
 
 export function toast(msg) {
   const t = el('div', {
-    style: 'position:fixed;left:50%;transform:translateX(-50%);bottom:88px;background:#273449;' +
-      'padding:10px 16px;border-radius:12px;z-index:40;font-size:14px;',
+    style: 'position:fixed;left:50%;transform:translateX(-50%);bottom:88px;background:#1C2314;' +
+      'border:1px solid #232B1B;padding:10px 16px;border-radius:14px;z-index:40;font-size:14px;' +
+      'max-width:min(88vw,420px);width:max-content;text-align:center;line-height:1.35;',
   }, msg);
   document.body.append(t);
-  setTimeout(() => t.remove(), 2200);
+  setTimeout(() => t.remove(), Math.min(6000, 2200 + msg.length * 30));
 }

@@ -43,9 +43,24 @@ export function connectStrava() {
 export async function handleStravaRedirect() {
   const code = new URLSearchParams(location.search).get('code');
   if (!code || !stravaConfigured()) return false;
+  history.replaceState(null, '', location.pathname); // strip ?code= from the URL
+  if (!signedIn()) {
+    // Park the authorization; it completes automatically right after sign-in.
+    settings.save({ stravaPendingCode: code });
+    throw new Error('Strava authorized ✓ — now sign in to Cloud sync and it will finish connecting automatically.');
+  }
   const d = await proxy({ action: 'token', client_id: cfg().clientId, client_secret: cfg().clientSecret, code });
   saveTokens(d);
-  history.replaceState(null, '', location.pathname); // strip ?code= from the URL
+  return true;
+}
+
+/* Finish a parked authorization (user authorized before signing in). */
+export async function completePendingStrava() {
+  const code = settings.load().stravaPendingCode;
+  if (!code || !signedIn() || !stravaConfigured()) return false;
+  settings.save({ stravaPendingCode: null }); // single-use — clear before trying
+  const d = await proxy({ action: 'token', client_id: cfg().clientId, client_secret: cfg().clientSecret, code });
+  saveTokens(d);
   return true;
 }
 
