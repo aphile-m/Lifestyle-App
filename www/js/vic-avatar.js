@@ -1,8 +1,9 @@
-/* vic-avatar.js — 8-Bit Vic v2: 24×36 high-density SVG pixel art with shading
-   (no image assets). Animated in CSS: idle breathing bob, periodic blink, and a
-   wave from the right arm. Groups: .vic-eyes and .vic-arm animate independently.
-   The size parameter is in LEGACY 12-col pixel units so existing call sites keep
-   their rendered size: vicAvatar(9) is still ~108px wide. */
+/* vic-avatar.js — 8-Bit Vic v3: 36×52 high-density SVG pixel art (3× the
+   original grid). Enough resolution for brows, shaded skin, a shaped beard,
+   "VIC" lettering on the tank, striped joggers and sneakers — still zero
+   image assets. Animated in CSS: breathing bob, periodic blink (.vic-eyes),
+   waving right arm (.vic-arm). Size parameter stays in LEGACY 12-col pixel
+   units so existing call sites keep their rendered size. */
 
 const PAL = {
   H: '#181818', h: '#2A2A2A',                 // hair + highlight
@@ -10,49 +11,64 @@ const PAL = {
   W: '#F8FAFC', E: '#0B0B0B',                 // eyes
   T: '#1F2618', t: '#2A331F',                 // tank + highlight
   G: '#A3E635', g: '#86BD2B',                 // lime + shadow
-  P: '#161B10', p: '#20271A',                 // pants + highlight
-  Z: '#0E0E0E',                               // soles
+  P: '#161B10',                               // joggers
+  Z: '#0E0E0E',                               // shoes
   A: '#A5693B', a: '#8A5630',                 // right arm (wave group)
 };
 
-/* 24×36 sprite. '.' = empty. A/a = right-arm group (waves). W/E = eyes group. */
 const ROWS = [
-  '........HHHHHHHH........',
-  '......HHHHHHHHHHHH......',
-  '......HhhHHHHHHHHH......',
-  '.....HHHHHHHHHHHHHH.....',
-  '.....HSSSSSSSSSSSSH.....',
-  '.....HSsssSSSSSSSSH.....',
-  '.....HSSSSSSSSSSSSH.....',
-  '.....SSWWESSSSWWESS.....',
-  '.....SSSSSSSSSSSSSS.....',
-  '.....SxSSSxxSSSSSxS.....',
-  '.....SSHHHHHHHHHHSS.....',
-  '.....SHHHHxxxxHHHHS.....',
-  '......HHHHHHHHHHHH......',
-  '.......HHHHHHHHHH.......',
-  '..........SSSS..........',
-  '.........SSSSSS.........',
-  '......TTTTTTTTTTTT......',
-  '....TTTTTTTTTTTTTTTT....',
-  '..SSTTTTTTTTTTTTTTTTAA..',
-  '..SSTTGGGGGGGGGGGGTTAA..',
-  '..SSTTggggggggggggTTAA..',
-  '..SxTTTTTTTTTTTTTTTTAa..',
-  '..SxTTTTTTTTTTTTTTTTAa..',
-  '..SxTTtTTTTTTTTTTtTTAa..',
-  '..Sx.TTTTTTTTTTTTTT.Aa..',
-  '..SS.TTTTTTTTTTTTTT.AA..',
-  '..ss.TTTTTTTTTTTTTT.AA..',
-  '.....PPPPPPPPPPPPPP.....',
-  '.....PPPPPPPPPPPPPP.....',
-  '.....PPPPPP..PPPPPP.....',
-  '.....PPPPPP..PPPPPP.....',
-  '.....pPPPPP..PPPPPp.....',
-  '.....PPPPP....PPPPP.....',
-  '.....PPPPP....PPPPP.....',
-  '....GGGGGG....GGGGGG....',
-  '....ZZZZZZ....ZZZZZZ....',
+  '.............HHHHHHHHHH.............',
+  '...........HHHHHHHHHHHHHH...........',
+  '..........HHHHHHHHHHHHHHHH..........',
+  '..........HHhhhHHHHHHHHHHH..........',
+  '..........HHSSSSSSSSSSSSHH..........',
+  '..........HSSSSSSSSSSSSSSH..........',
+  '..........HSssssSSSSSSSSSH..........',
+  '..........SSHHHHSSSSHHHHSS..........',
+  '..........SSWEWWSSSSWEWWSS..........',
+  '..........SSWEWWSSSSWEWWSS..........',
+  '..........SSxxxSSSSSSxxxSS..........',
+  '..........SSSSSSSxxSSSSSSS..........',
+  '..........SSSSSSSSSSSSSSSS..........',
+  '..........SSHHHHHHHHHHHHSS..........',
+  '..........SHHHHHHHHHHHHHHS..........',
+  '..........SHHHHxxxxxxHHHHS..........',
+  '..........SHHHHHHHHHHHHHHS..........',
+  '...........HHHHHHHHHHHHHH...........',
+  '............HHHHHHHHHHHH............',
+  '.............HHHHHHHHHH.............',
+  '...............SSSSSS...............',
+  '..............SSSSSSSS..............',
+  '............TTTTTTTTTTTT............',
+  '.........TTTTTTTTTTTTTTTTTT.........',
+  '.......TTTTTTTTTTTTTTTTTTTTTT.......',
+  '....SSSTTTTTTTTTTTTTTTTTTTTTTAAA....',
+  '....SSSTTTTTTTTTTTTTTTTTTTTTTAAA....',
+  '....SSSTGGGGGGGGGGGGGGGGGGGGTAAA....',
+  '....SSSTTTTTTTTTTTTTTTTTTTTTTAAA....',
+  '....SSxTTTTTGTGTTGGGTGGGTTTTTaAA....',
+  '....SSxTTTTTGTGTTTGTTGTTTTTTTaAA....',
+  '....SSxTTTTTTGTTTGGGTGGGTTTTTaAA....',
+  '....SSxTTTTTTTTTTTTTTTTTTTTTTaAA....',
+  '....SSxTTTTTTTTTTTTTTTTTTTTTTaAA....',
+  '....sss.TTTTTTTTTTTTTTTTTTTT.AAA....',
+  '....sss.TTTTTTTTTTTTTTTTTTTT.AAA....',
+  '........TTTTTTTTTTTTTTTTTTTT........',
+  '.........TTTTTTTTTTTTTTTTTT.........',
+  '..........TTTTTTTTTTTTTTTT..........',
+  '..........PPPPPPPPPPPPPPPP..........',
+  '..........GPPPPPPPPPPPPPPG..........',
+  '..........GPPPPPPPPPPPPPPG..........',
+  '..........GPPPPPPPPPPPPPPG..........',
+  '..........PPPPPPP..PPPPPPP..........',
+  '..........GPPPPPP..PPPPPPG..........',
+  '..........GPPPPPP..PPPPPPG..........',
+  '..........GPPPPPP..PPPPPPG..........',
+  '..........GPPPPPP..PPPPPPG..........',
+  '...........PPPPP....PPPPP...........',
+  '.........ZZZZZZZZ..ZZZZZZZZ.........',
+  '.........ZZZGGGGG..GGGGGZZZ.........',
+  '.........ZZZZZZZZ..ZZZZZZZZ.........',
 ];
 
 const isEye = ch => ch === 'W' || ch === 'E';
@@ -74,7 +90,7 @@ export function vicAvatar(legacyPx = 8, cls = '') {
   const arm = group(svg, 'vic-arm');
 
   ROWS.forEach((row, y) => {
-    if (row.length !== w) { console.error('vic sprite row', y, 'length', row.length); return; }
+    if (row.length !== w) { console.error('vic sprite row', y, 'length', row.length, '≠', w); return; }
     [...row].forEach((ch, x) => {
       if (ch === '.') return;
       const color = PAL[ch];
