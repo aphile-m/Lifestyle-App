@@ -157,7 +157,7 @@ body {
 /* --- 8-Bit Vic (SVG pixel avatar) --- */
 .vic-px { image-rendering: pixelated; display: block; animation: vic-bob 2.8s ease-in-out infinite; filter: drop-shadow(0 6px 18px rgba(163, 230, 53, .18)); }
 .vic-px .vic-eyes { transform-box: fill-box; transform-origin: center; animation: vic-blink 4.6s infinite; }
-.vic-px .vic-arm { transform-box: fill-box; transform-origin: 15% 10%; animation: vic-wave 7s ease-in-out infinite; }
+.vic-px .vic-arm { transform-box: fill-box; transform-origin: 30% 6%; animation: vic-wave 7s ease-in-out infinite; }
 .vic-px.still, .vic-px.still .vic-arm { animation-name: vic-bob; } /* bubbles: no wave spam */
 .vic-px.still .vic-arm { animation: none; }
 @keyframes vic-bob { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(3px); } }
@@ -176,3 +176,10 @@ body {
 .hey { font-size: 26px; font-weight: 700; margin: 4px 0 2px; }
 .hey-sub { color: var(--ink-dim); margin-bottom: 16px; }
 .hey-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+
+/* --- animated exercise sprites (two-frame pixel loops) --- */
+.ex-px { image-rendering: pixelated; flex: none; }
+.ex-px .exf-1 { animation: exf-a 1.1s steps(1) infinite; }
+.ex-px .exf-2 { animation: exf-b 1.1s steps(1) infinite; }
+@keyframes exf-a { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
+@keyframes exf-b { 0%, 100% { opacity: 0; } 50% { opacity: 1; } }

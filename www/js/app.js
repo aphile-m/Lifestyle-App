@@ -10,6 +10,7 @@ import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentM
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, importActivities } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney } from './onboarding.js';
 import { vicAvatar } from './vic-avatar.js';
+import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
 
@@ -321,6 +322,7 @@ function player(session, week) {
       }, `Set ${i + 1}`));
       card.append(el('div', { style: 'margin:10px 0 4px' },
         el('div', { class: 'row' },
+          exerciseAnim(ex.name, 2.6),
           el('b', { class: 'grow' }, ex.name),
           el('span', { class: 'muted' }, ex.reps ? `${sets}×${ex.reps}` : '')),
         el('p', { class: 'muted', style: 'font-size:13px' },
