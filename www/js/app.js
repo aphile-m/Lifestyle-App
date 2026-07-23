@@ -802,9 +802,17 @@ function stravaSheet() {
   const secret = el('input', { type: 'password', value: s.stravaClientSecret || '', placeholder: 'Client secret' });
   const status = el('p', { class: 'muted', style: 'margin-top:10px' },
     stravaConnected() ? 'Connected ✓' : 'Not connected.');
+  const guide = el('div', { class: 'muted', style: 'font-size:13px;margin-bottom:12px' },
+    el('p', { style: 'margin-bottom:6px' }, el('b', {}, 'One-time setup (~2 min):')),
+    el('p', {}, '1. Sign in to Cloud sync first (required — Strava calls route through your secure proxy).'),
+    el('p', {}, '2. On strava.com → Settings → My API Application (strava.com/settings/api).'),
+    el('p', {}, '3. Fill in: any name (not containing “Strava”) · Category: Training · Website: https://aphile-m.github.io/Lifestyle-App/ · Authorization Callback Domain: aphile-m.github.io (exactly — no https://, no path).'),
+    el('p', {}, '4. Upload any square icon when asked, save, then copy the Client ID and Client Secret shown.'),
+    el('p', {}, '5. Paste them below (they stay on this device) → Connect → Authorize on Strava → you land back here.'));
   sheet('Strava',
-    el('p', { class: 'muted', style: 'margin-bottom:12px' },
-      'Create your own (free) API app at strava.com/settings/api — set Authorization Callback Domain to aphile-m.github.io — then paste its credentials here. They stay on this device.'),
+    signedIn() ? null : el('p', { class: 'did-you-know' },
+      '⚠️ Sign in to Cloud sync first (Me → Settings) — connecting will fail without it.'),
+    guide,
     el('div', { class: 'field' }, el('label', {}, 'Client ID'), id),
     el('div', { class: 'field' }, el('label', {}, 'Client secret'), secret),
     el('div', { class: 'chips' },
