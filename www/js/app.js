@@ -62,8 +62,28 @@ initOnboarding({
     go(localStorage.getItem('trainer_tab') || 'today');
     autoCloudPush();
     autoStravaSync();
+    checkNativeUpdate();
   }
 })();
+
+/* Android shell: web updates arrive live (the shell loads the hosted app), but
+   the APK itself is versioned — check the latest release at launch and offer it. */
+async function checkNativeUpdate() {
+  const cap = window.Capacitor;
+  if (!cap || !(cap.isNativePlatform && cap.isNativePlatform())) return;
+  try {
+    const info = await cap.Plugins.App.getInfo();
+    const mine = parseInt(info.build) || parseInt(info.version) || 0;
+    const rel = await (await fetch('https://api.github.com/repos/aphile-m/Lifestyle-App/releases/latest')).json();
+    const latest = parseInt(String(rel.tag_name || '').replace('android-v', '')) || 0;
+    if (latest > mine) {
+      toast(`📦 App update v${latest} available (you have v${mine})`);
+      if (confirm(`Trainer App v${latest} is out (you have v${mine}). Download the update now? It installs over the current app — your data stays.`)) {
+        window.open('https://github.com/aphile-m/Lifestyle-App/releases/latest/download/Trainer-App.apk', '_blank');
+      }
+    }
+  } catch {}
+}
 
 /* Push any unsynced local logs on every launch — logs made before sign-in
    used to sit on-device forever waiting for the next manual save. */

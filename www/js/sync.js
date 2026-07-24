@@ -88,7 +88,8 @@ async function rest(method, table, body, query = '') {
     body: body ? JSON.stringify(body) : undefined,
   });
   if (!res.ok) throw new Error(`${table}: sync failed (${res.status}) ${(await res.text()).slice(0, 120)}`);
-  return res.status === 204 ? null : res.json();
+  const text = await res.text();
+  return text ? JSON.parse(text) : null; // return=minimal answers 201 with an EMPTY body
 }
 
 export async function restGet(table, query = '') {
