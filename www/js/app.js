@@ -73,7 +73,11 @@ async function autoCloudPush() {
     const counts = await pushAll();
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total > 0) toast(`☁️ ${total} entr${total === 1 ? 'y' : 'ies'} backed up`);
-  } catch {}
+  } catch (e) {
+    // surface what failed — silent sync failures hid missing measurements once already
+    const total = e.counts ? Object.values(e.counts).reduce((a, b) => a + b, 0) : 0;
+    toast(`☁️ ${total ? total + ' backed up · ' : ''}⚠️ ${e.message.slice(0, 180)}`);
+  }
 }
 
 /* Strava syncs itself on every launch; quiet unless something new arrived. */

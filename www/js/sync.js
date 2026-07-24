@@ -152,24 +152,41 @@ function journalRows(r) {
   return (r.tags || []).map(tag => ({ day: day(r.ts), tag, auto: false }));
 }
 
-/* Push everything unsynced. Returns counts per store. */
+/* Push everything unsynced. Fault-tolerant: one failing table no longer blocks
+   the rest — failures are collected and reported. Returns counts per store. */
 export async function pushAll() {
   if (!syncReady() || !signedIn()) throw new Error('NOT_SIGNED_IN');
   const counts = {};
+  const errors = [];
   for (const [store, m] of Object.entries(MAP)) {
-    const rows = (await logs.all(store)).filter(r => !r.synced);
-    if (rows.length) {
-      await rest('POST', m.table + (m.conflict ? `?on_conflict=${m.conflict}` : ''), rows.map(m.up));
-      for (const r of rows) await logs.put(store, { ...r, synced: true });
+    try {
+      const rows = (await logs.all(store)).filter(r => !r.synced);
+      if (rows.length) {
+        await rest('POST', m.table + (m.conflict ? `?on_conflict=${m.conflict}` : ''), rows.map(m.up));
+        for (const r of rows) await logs.put(store, { ...r, synced: true });
+      }
+      counts[store] = rows.length;
+    } catch (e) {
+      counts[store] = 0;
+      errors.push(`${store}: ${e.message}`);
     }
-    counts[store] = rows.length;
   }
-  const jrows = (await logs.all('journal')).filter(r => !r.synced);
-  const expanded = jrows.flatMap(journalRows);
-  if (expanded.length) await rest('POST', 'trainer_journal_tags?on_conflict=user_id,day,tag', expanded);
-  for (const r of jrows) await logs.put('journal', { ...r, synced: true });
-  counts.journal = jrows.length;
+  try {
+    const jrows = (await logs.all('journal')).filter(r => !r.synced);
+    const expanded = jrows.flatMap(journalRows);
+    if (expanded.length) await rest('POST', 'trainer_journal_tags?on_conflict=user_id,day,tag', expanded);
+    for (const r of jrows) await logs.put('journal', { ...r, synced: true });
+    counts.journal = jrows.length;
+  } catch (e) {
+    counts.journal = 0;
+    errors.push('journal: ' + e.message);
+  }
   settings.save({ lastSync: new Date().toISOString() });
+  if (errors.length) {
+    const err = new Error('Partial sync — ' + errors.join(' • '));
+    err.counts = counts;
+    throw err;
+  }
   return counts;
 }
 
