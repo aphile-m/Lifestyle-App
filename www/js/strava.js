@@ -100,5 +100,8 @@ export async function importActivities() {
     });
     imported += 1;
   }
+  settings.save({ stravaLastImport: new Date().toISOString() });
   return imported;
 }
+
+export const stravaLastImport = () => settings.load().stravaLastImport || null;

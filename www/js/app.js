@@ -7,7 +7,7 @@ import { askVic } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
 import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
-import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities } from './strava.js';
+import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities, stravaLastImport } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney } from './onboarding.js';
 import { vicAvatar } from './vic-avatar.js';
 import { vicSprite } from './vic-sprite.js';
@@ -43,8 +43,49 @@ initOnboarding({
   },
   onDone: () => { toast('Welcome aboard. Vic’s watching.'); go('today'); },
 });
-if (!settings.load().onboardingDone) startJourney();
-else go(localStorage.getItem('trainer_tab') || 'today');
+(async function boot() {
+  if (!settings.load().onboardingDone) {
+    // Returning user in a fresh browser: restore from the cloud first, then skip
+    // the journey automatically when its requirements are already met in reality.
+    try {
+      if (signedIn() && !(await logs.all('weights')).length) await pullAll();
+    } catch {}
+    const [meas, bench, weights] = await Promise.all([
+      latestMeasurement(), latestBenchmark(), logs.all('weights'),
+    ]);
+    if (settings.apiKey && weights.length && meas && bench) {
+      settings.save({ onboardingDone: true, profileConfirmed: true });
+    }
+  }
+  if (!settings.load().onboardingDone) startJourney();
+  else {
+    go(localStorage.getItem('trainer_tab') || 'today');
+    autoStravaSync();
+  }
+})();
+
+/* Strava syncs itself on every launch; quiet unless something new arrived. */
+async function autoStravaSync() {
+  if (!stravaConnected() || !signedIn()) return;
+  try {
+    const n = await importActivities();
+    if (n > 0) {
+      toast(`🏃 ${n} new activit${n === 1 ? 'y' : 'ies'} from Strava`);
+      trySync();
+      if ((localStorage.getItem('trainer_tab') || 'today') === 'today' && !journeyActive()) go('today');
+    }
+  } catch {} // silent — the Today card shows staleness, manual sync shows errors
+}
+
+function timeAgo(iso) {
+  const mins = Math.max(0, Math.round((Date.now() - Date.parse(iso)) / 60000));
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins} min ago`;
+  const h = Math.round(mins / 60);
+  if (h < 24) return `${h} h ago`;
+  const d = Math.round(h / 24);
+  return `${d} day${d === 1 ? '' : 's'} ago`;
+}
 
 /* Weekly Lifestyle Score history: upsert this week's score; lock the earliest row as
    the baseline once the calibration fortnight has passed (SPEC §3.1/§3.2). */
@@ -105,6 +146,27 @@ async function today(root) {
         el('h2', {}, `Week ${t.week.week}: ${t.week.theme}`),
         el('p', {}, 'Rest day on the plan. Recovery is training too.')));
     }
+  }
+
+  // Strava status (sync runs at launch; manual sync + freshness here)
+  if (stravaConnected()) {
+    const last = stravaLastImport();
+    const syncBtn = el('button', { class: 'chip' }, '↻ Sync');
+    syncBtn.addEventListener('click', async () => {
+      syncBtn.disabled = true; syncBtn.textContent = 'Syncing…';
+      try {
+        const n = await importActivities();
+        toast(n ? `🏃 ${n} new activit${n === 1 ? 'y' : 'ies'} imported` : 'Up to date — nothing new on Strava.');
+        trySync(); go('today');
+      } catch (e) { toast('Strava: ' + e.message); syncBtn.disabled = false; syncBtn.textContent = '↻ Sync'; }
+    });
+    root.append(el('div', { class: 'card' },
+      el('div', { class: 'row' },
+        el('div', { class: 'grow' },
+          el('h2', { style: 'margin-bottom:2px' }, '🏃 Strava'),
+          el('p', { class: 'muted', style: 'font-size:13px' },
+            last ? `Last sync ${timeAgo(last)} · auto-syncs at launch` : 'Not synced yet — tap Sync.')),
+        syncBtn)));
   }
 
   // Quick log
@@ -802,7 +864,9 @@ function stravaSheet() {
   const id = el('input', { value: s.stravaClientId || '', placeholder: 'Client ID', inputmode: 'numeric' });
   const secret = el('input', { type: 'password', value: s.stravaClientSecret || '', placeholder: 'Client secret' });
   const status = el('p', { class: 'muted', style: 'margin-top:10px' },
-    stravaConnected() ? 'Connected ✓' : 'Not connected.');
+    stravaConnected()
+      ? 'Connected ✓' + (stravaLastImport() ? ` · last sync ${timeAgo(stravaLastImport())}` : ' · not synced yet')
+      : 'Not connected.');
   completePendingStrava().then(ok => { if (ok) status.textContent = 'Connected ✓'; })
     .catch(e => { status.textContent = '⚠️ ' + e.message; });
   const guide = el('div', { class: 'muted', style: 'font-size:13px;margin-bottom:12px' },
