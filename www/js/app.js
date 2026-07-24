@@ -18,13 +18,25 @@ const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed',
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
 
-function go(tab) {
+function go(tab, fromPop = false) {
   if (journeyActive()) { renderJourney(); return; } // sheets saved mid-journey refresh the journey
+  if (!fromPop) {
+    // every screen is a history entry so the Android back button navigates
+    // instead of closing the app; at the root, back exits as expected
+    if (!go._init) history.replaceState({ tab }, '');
+    else if (history.state?.tab !== tab || history.state?.player) history.pushState({ tab }, '');
+    go._init = true;
+  }
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
   $('#screen').replaceChildren();
   screens[tab]($('#screen'));
   localStorage.setItem('trainer_tab', tab);
 }
+
+window.addEventListener('popstate', e => {
+  if (journeyActive()) return; // the journey handles its own pages
+  if (e.state && e.state.tab) go(e.state.tab, true);
+});
 
 document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
 
@@ -444,6 +456,7 @@ function wodCard(week, session, startable) {
 
 /* ---------------- Workout player ---------------- */
 function player(session, week) {
+  history.pushState({ tab: localStorage.getItem('trainer_tab') || 'today', player: true }, '');
   const root = $('#screen');
   root.replaceChildren();
   root.append(el('h1', { class: 'h-page' }, session.title),
@@ -473,7 +486,7 @@ function player(session, week) {
   root.append(el('button', {
     class: 'btn', style: 'width:100%', onclick: () => finishSheet(session),
   }, 'Finish session'), el('button', {
-    class: 'btn ghost', style: 'width:100%;margin-top:8px', onclick: () => go('train'),
+    class: 'btn ghost', style: 'width:100%;margin-top:8px', onclick: () => history.back(),
   }, 'Back (nothing saved)'));
 }
 

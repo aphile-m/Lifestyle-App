@@ -28,10 +28,19 @@ export function startJourney(fromIndex = 0) {
   active = true;
   idx = fromIndex;
   document.body.classList.add('journey-mode');
+  history.replaceState({ j: idx }, '');
   renderJourney();
 }
 
+window.addEventListener('popstate', e => {
+  if (active && e.state && typeof e.state.j === 'number') {
+    idx = e.state.j;
+    renderJourney();
+  }
+});
+
 function finishJourney() {
+  history.replaceState({ tab: 'today' }, '');
   settings.save({ onboardingDone: true });
   active = false;
   document.body.classList.remove('journey-mode');
@@ -235,14 +244,16 @@ export async function renderJourney() {
     class: 'btn', style: 'flex:1',
     onclick: () => {
       if (page.isLast) { finishJourney(); return; }
-      idx += 1; renderJourney();
+      idx += 1;
+      history.pushState({ j: idx }, '');
+      renderJourney();
       $('#screen').scrollTop = 0; window.scrollTo(0, 0);
     },
   }, page.next);
   if (!nextOk) nextBtn.disabled = true;
 
   const nav = el('div', { class: 'j-nav' },
-    idx > 0 ? el('button', { class: 'btn ghost', onclick: () => { idx -= 1; renderJourney(); } }, 'Back') : null,
+    idx > 0 ? el('button', { class: 'btn ghost', onclick: () => history.back() }, 'Back') : null,
     nextBtn);
 
   root.append(

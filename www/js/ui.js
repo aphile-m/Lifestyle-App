@@ -36,7 +36,16 @@ export function scoreRing(score) {
 
 export function sheet(title, ...children) {
   const root = $('#overlay-root');
-  const close = () => root.replaceChildren();
+  history.pushState({ overlay: true }, ''); // back button closes the sheet, not the app
+  let closed = false;
+  const doClose = () => {
+    if (closed) return;
+    closed = true;
+    window.removeEventListener('popstate', doClose);
+    root.replaceChildren();
+  };
+  window.addEventListener('popstate', doClose);
+  const close = () => { if (!closed) history.back(); };
   const box = el('div', { class: 'sheet' }, el('h3', {}, title), ...children);
   const overlay = el('div', { class: 'overlay', onclick: e => { if (e.target === overlay) close(); } }, box);
   root.replaceChildren(overlay);
