@@ -60,9 +60,21 @@ initOnboarding({
   if (!settings.load().onboardingDone) startJourney();
   else {
     go(localStorage.getItem('trainer_tab') || 'today');
+    autoCloudPush();
     autoStravaSync();
   }
 })();
+
+/* Push any unsynced local logs on every launch — logs made before sign-in
+   used to sit on-device forever waiting for the next manual save. */
+async function autoCloudPush() {
+  if (!signedIn()) return;
+  try {
+    const counts = await pushAll();
+    const total = Object.values(counts).reduce((a, b) => a + b, 0);
+    if (total > 0) toast(`☁️ ${total} entr${total === 1 ? 'y' : 'ies'} backed up`);
+  } catch {}
+}
 
 /* Strava syncs itself on every launch; quiet unless something new arrived. */
 async function autoStravaSync() {
