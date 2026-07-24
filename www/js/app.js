@@ -5,7 +5,7 @@ import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, trendWeight, WEIGHTS } from './score.js';
 import { askVic } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
-import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
+import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities, stravaLastImport } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney, completeJourney } from './onboarding.js';
@@ -90,6 +90,7 @@ async function checkNativeUpdate() {
 async function autoCloudPush() {
   if (!signedIn()) return;
   try {
+    await pushProfile(); // keep the cloud mirror of setup (incl. Strava tokens) current
     const counts = await pushAll();
     const total = Object.values(counts).reduce((a, b) => a + b, 0);
     if (total > 0) toast(`☁️ ${total} entr${total === 1 ? 'y' : 'ies'} backed up`);
@@ -102,7 +103,14 @@ async function autoCloudPush() {
 
 /* Strava syncs itself on every launch; quiet unless something new arrived. */
 async function autoStravaSync() {
-  if (!stravaConnected() || !signedIn()) return;
+  if (!signedIn()) return;
+  if (!stravaConnected()) {
+    // OAuth completes in the external browser on Android — the connection reaches
+    // this context through the cloud setup mirror, so adopt it at launch.
+    try { await adoptCloudSetup(); } catch {}
+    if (stravaConnected()) { toast('🏃 Strava connected via your account ✓'); go(localStorage.getItem('trainer_tab') || 'today'); }
+  }
+  if (!stravaConnected()) return;
   try {
     const n = await importActivities();
     if (n > 0) {
