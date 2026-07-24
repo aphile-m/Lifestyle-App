@@ -39,6 +39,7 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npx cap add android
+          npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#0A0D08' --iconBackgroundColorDark '#0A0D08' --splashBackgroundColor '#0A0D08' --splashBackgroundColorDark '#0A0D08'
           npx cap sync android
       - name: Build debug APK
         run: |
