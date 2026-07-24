@@ -19,6 +19,11 @@ let active = false;
 export function initOnboarding(d) { deps = d; }
 export const journeyActive = () => active;
 
+/* External completion: sign-in mid-journey restored a finished setup. */
+export function completeJourney() {
+  if (active) finishJourney();
+}
+
 export function startJourney(fromIndex = 0) {
   active = true;
   idx = fromIndex;

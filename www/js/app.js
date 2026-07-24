@@ -8,7 +8,7 @@ import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBen
 import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities, stravaLastImport } from './strava.js';
-import { initOnboarding, journeyActive, renderJourney, startJourney } from './onboarding.js';
+import { initOnboarding, journeyActive, renderJourney, startJourney, completeJourney } from './onboarding.js';
 import { vicAvatar } from './vic-avatar.js';
 import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
@@ -798,6 +798,18 @@ function cloudSheet() {
       }
       status.textContent = 'Signed in ✓ — syncing…';
       completePendingStrava().then(ok => { if (ok) toast('Strava connected ✓'); }).catch(e => toast('Strava: ' + e.message));
+      // signing in mid-journey: restore from the cloud and skip what's already done
+      if (journeyActive()) {
+        try {
+          await pullAll();
+          const [meas, bench, w] = await Promise.all([latestMeasurement(), latestBenchmark(), logs.all('weights')]);
+          if (settings.apiKey && w.length && meas && bench) {
+            settings.save({ profileConfirmed: true });
+            completeJourney();
+            toast('Welcome back — setup restored from the cloud ✓');
+          }
+        } catch {}
+      }
       const counts = await pushAll(); await pushProfile();
       status.textContent = 'Synced: ' + (Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new');
       toast('Cloud sync on.');
