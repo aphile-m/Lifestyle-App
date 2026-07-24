@@ -5,7 +5,7 @@
    secret in the Strava sheet (stored on-device only). */
 
 import { settings, logs } from './store.js';
-import { syncConfig, signedIn, accessToken as supabaseToken } from './sync.js';
+import { syncConfig, signedIn, accessToken as supabaseToken, pushProfile } from './sync.js';
 
 const cfg = () => {
   const s = settings.load();
@@ -66,6 +66,7 @@ export async function completePendingStrava() {
 
 function saveTokens(d) {
   settings.save({ stravaTokens: { access_token: d.access_token, refresh_token: d.refresh_token, expires_at: d.expires_at } });
+  pushProfile().catch(() => {}); // keep the cloud device-setup mirror current
 }
 
 async function accessToken() {

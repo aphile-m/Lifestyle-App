@@ -769,6 +769,7 @@ function apiKeySheet() {
       class: 'btn', onclick: () => {
         settings.save({ apiKey: input.value.trim() });
         close(); toast('Key saved.');
+        pushProfile().catch(() => {});
         if (journeyActive()) renderJourney();
       },
     }, 'Save key'));
@@ -801,7 +802,7 @@ function cloudSheet() {
       // signing in mid-journey: restore from the cloud and skip what's already done
       if (journeyActive()) {
         try {
-          await pullAll();
+          await pullAll(); // includes adoptCloudSetup: API key + Strava come back too
           const [meas, bench, w] = await Promise.all([latestMeasurement(), latestBenchmark(), logs.all('weights')]);
           if (settings.apiKey && w.length && meas && bench) {
             settings.save({ profileConfirmed: true });

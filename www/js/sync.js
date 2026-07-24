@@ -211,20 +211,49 @@ export async function pullAll() {
     }
     counts.journal = tags.length;
   }
-  // profile: adopt the cloud copy if local is still default
-  const s = settings.load();
-  if (!s.profile) {
-    const prof = await restGet('trainer_profile', 'select=profile');
-    if (prof[0]?.profile && Object.keys(prof[0].profile).length) {
-      settings.save({ profile: { ...defaultProfile(), ...prof[0].profile } });
-    }
-  }
+  await adoptCloudSetup();
   return counts;
 }
 
-/* Also mirror profile */
+/* Adopt the cloud profile AND device setup (API key, Strava credentials) into
+   local settings — anything missing locally is filled from the cloud, so a new
+   device needs nothing but a sign-in. */
+export async function adoptCloudSetup() {
+  const rows = await restGet('trainer_profile', 'select=profile');
+  const p = rows[0]?.profile;
+  if (!p) return false;
+  const { _setup, ...profile } = p;
+  const s = settings.load();
+  const patch = {};
+  if (!s.profileConfirmed && Object.keys(profile).length) {
+    patch.profile = { ...defaultProfile(), ...s.profile, ...profile };
+    patch.profileConfirmed = true;
+  }
+  if (_setup) {
+    if (!s.apiKey && _setup.apiKey) patch.apiKey = _setup.apiKey;
+    if (!s.stravaClientId && _setup.stravaClientId) patch.stravaClientId = _setup.stravaClientId;
+    if (!s.stravaClientSecret && _setup.stravaClientSecret) patch.stravaClientSecret = _setup.stravaClientSecret;
+    if (!s.stravaTokens && _setup.stravaTokens) patch.stravaTokens = _setup.stravaTokens;
+  }
+  if (Object.keys(patch).length) settings.save(patch);
+  return true;
+}
+
+/* Mirror the profile PLUS device setup (API key, Strava credentials) so any
+   device restores completely after one sign-in. Rows are protected by RLS in
+   your own Supabase project. */
 export async function pushProfile() {
   if (!syncReady() || !signedIn()) return;
+  const s = settings.load();
+  const payload = {
+    ...settings.profile,
+    _setup: {
+      apiKey: s.apiKey || null,
+      stravaClientId: s.stravaClientId || null,
+      stravaClientSecret: s.stravaClientSecret || null,
+      stravaTokens: s.stravaTokens || null,
+    },
+  };
   await rest('POST', 'trainer_profile?on_conflict=user_id',
-    [{ profile: settings.profile, updated_at: new Date().toISOString() }]);
+    [{ profile: payload, updated_at: new Date().toISOString() }]);
 }

@@ -16,5 +16,9 @@
       "autoUpdate": false,
       "directUpdate": false
     }
+  },
+  "server": {
+    "url": "https://aphile-m.github.io/Lifestyle-App/",
+    "cleartext": false
   }
 }
