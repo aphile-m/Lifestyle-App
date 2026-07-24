@@ -214,16 +214,32 @@ function checkinForm() {
     }, t)));
   const sleep = ratingRow('Sleep quality');
   const energy = ratingRow('Energy / mood');
-  return el('div', {}, chipRow, sleep.row, energy.row,
+  const water = counterRow('💧 Water (glasses)', 0);
+  const drinks = counterRow('🍺 Alcoholic drinks', 0);
+  return el('div', {}, chipRow, sleep.row, energy.row, water.row, drinks.row,
     el('button', {
       class: 'btn', style: 'margin-top:10px', onclick: async () => {
         await logs.add('journal', { tags: [...tags] });
-        await logs.add('checkins', { sleep: sleep.value(), energy: energy.value() });
+        await logs.add('checkins', { sleep: sleep.value(), energy: energy.value(), water: water.value(), drinks: drinks.value() });
         toast('Checked in. Vic sees this.');
         trySync();
         go('today');
       },
     }, 'Save check-in'));
+}
+
+function counterRow(label, start = 0) {
+  let val = start;
+  const num = el('b', { style: 'min-width:26px;text-align:center' }, String(val));
+  const btn = (txt, d) => el('button', {
+    class: 'chip', onclick: () => { val = Math.max(0, Math.min(30, val + d)); num.textContent = String(val); },
+  }, txt);
+  return {
+    row: el('div', { class: 'row', style: 'margin:8px 0' },
+      el('span', { class: 'muted', style: 'width:150px' }, label),
+      btn('−', -1), num, btn('+', 1)),
+    value: () => val,
+  };
 }
 
 function ratingRow(label) {
@@ -271,15 +287,15 @@ async function coach(root) {
     bubble(chat, 'me', text);
     chatHistory.push({ role: 'user', content: text });
     await logs.add('chat', { role: 'user', text });
-    const thinking = bubble(chat, 'vic thinking', 'Vic is thinking…');
+    const thinking = thinkingBubble(chat);
     try {
       const reply = await askVic(chatHistory.slice(-20));
-      thinking.remove();
+      thinking.done();
       bubble(chat, 'vic', reply);
       chatHistory.push({ role: 'assistant', content: reply });
       await logs.add('chat', { role: 'assistant', text: reply });
     } catch (e) {
-      thinking.remove();
+      thinking.done();
       if (e.message === 'NO_KEY') { apiKeySheet(); return; }
       bubble(chat, 'vic', '⚠️ ' + e.message);
     }
@@ -287,6 +303,20 @@ async function coach(root) {
   input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
   root.append(el('div', { class: 'chat-input' }, input, el('button', { class: 'btn', onclick: send }, 'Send')));
   chat.scrollIntoView(false);
+}
+
+/* Animated progress while Vic works: bouncing dots + staged status. */
+function thinkingBubble(chat) {
+  const stages = ['Reading your week…', 'Checking your numbers…', 'Thinking it through…', 'Writing back…'];
+  const label = el('span', { class: 'muted' }, stages[0]);
+  const b = el('div', { class: 'bubble vic think-row' },
+    el('span', { class: 'tdots' }, el('i'), el('i'), el('i')), label);
+  chat.append(b);
+  b.scrollIntoView({ block: 'end' });
+  let i = 0;
+  const timer = setInterval(() => { i = Math.min(i + 1, stages.length - 1); label.textContent = stages[i]; }, 2600);
+  b.done = () => { clearInterval(timer); b.remove(); };
+  return b;
 }
 
 function bubble(chat, cls, text) {

@@ -53,6 +53,9 @@ create table if not exists trainer_checkins (
   day         date not null default current_date,
   sleep_1_5   int check (sleep_1_5 between 1 and 5),
   energy_1_5  int check (energy_1_5 between 1 and 5),
+  water_glasses int check (water_glasses between 0 and 30),  -- EFSA ~2 L/day ≈ 8 glasses
+  drinks      int check (drinks between 0 and 30),           -- UK CMO low-risk: ≤14 units/wk
+
   soreness    jsonb not null default '{}'::jsonb,    -- body-map areas (v2)
   unique (user_id, day)
 );

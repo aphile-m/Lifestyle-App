@@ -92,6 +92,17 @@ async function buildContext() {
     const tags = journal.flatMap(j => j.tags || []);
     lines.push(`Journal tags last 7d: ${tags.join(', ') || 'none'}.`);
   }
+  const checkins = await logs.recent('checkins', 35);
+  const wk = checkins.filter(c => Date.parse(c.ts) >= Date.now() - 7 * 86400e3);
+  const water = wk.map(c => c.water).filter(v => v != null);
+  if (water.length) lines.push(`Water: avg ${(water.reduce((a, b) => a + b, 0) / water.length).toFixed(1)} glasses/day this week (guide: ~8).`);
+  const dk = wk.filter(c => c.drinks != null);
+  if (dk.length) {
+    const weekDrinks = dk.reduce((a, c) => a + c.drinks, 0);
+    const prior = checkins.filter(c => Date.parse(c.ts) < Date.now() - 7 * 86400e3 && c.drinks != null);
+    const priorWeekly = prior.length ? (prior.reduce((a, c) => a + c.drinks, 0) / prior.length * 7).toFixed(1) : null;
+    lines.push(`Alcohol: ${weekDrinks} drinks this week${priorWeekly ? ` (recent baseline ≈${priorWeekly}/wk — coach the TREND: cutting down deserves credit, per harm-reduction practice)` : ''}.`);
+  }
   const [meas, bench, plan] = await Promise.all([latestMeasurement(), latestBenchmark(), activePlan()]);
   if (meas) lines.push(`Latest tape measurements: ${JSON.stringify({ waist: meas.waist, hips: meas.hips, chest: meas.chest, arm: meas.arm, thigh: meas.thigh })} (taken ${meas.ts.slice(0, 10)}).`);
   if (bench) lines.push(`Latest benchmarks: ${JSON.stringify({ restingHr: bench.restingHr, run1600mSec: bench.runSec, pushups: bench.pushups, plankSec: bench.plankSec, gobletSquat: bench.squatReps })} (taken ${bench.ts.slice(0, 10)}).`);

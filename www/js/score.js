@@ -16,15 +16,18 @@ export const WEIGHTS = {
    (null = not enough data yet; pillar is excluded and weights renormalise,
    so missing sensors never read as "failing"). */
 export async function weeklyScore() {
-  const [workouts, foods, checkins, journal, weights, metrics] = await Promise.all([
+  const [workouts, foods, checkins35, journal, weights, metrics] = await Promise.all([
     logs.recent('workouts', 7), logs.recent('foods', 7),
-    logs.recent('checkins', 7), logs.recent('journal', 7),
+    logs.recent('checkins', 35), logs.recent('journal', 7),
     logs.recent('weights', 28), logs.recent('metrics', 7),
   ]);
+  const cutoff = Date.now() - 7 * 86400e3;
+  const checkins = checkins35.filter(c => Date.parse(c.ts) >= cutoff);
+  const priorCheckins = checkins35.filter(c => Date.parse(c.ts) < cutoff);
 
   const pillars = {
-    move: pillarMove(workouts),
-    fuel: pillarFuel(foods),
+    move: pillarMove(workouts, metrics),
+    fuel: pillarFuel(foods, checkins, priorCheckins),
     recover: pillarRecover(checkins, metrics),
     consistency: pillarConsistency([workouts, foods, checkins, journal]),
     body: pillarBody(weights),
@@ -42,23 +45,66 @@ export async function weeklyScore() {
 
 /* --- pillar heuristics (v0: simple, honest; refined as data sources land) --- */
 
-function pillarMove(workouts) {
-  if (!workouts.length) return null;
-  // v0: 4 sessions/week ≈ full marks
-  return clamp(Math.round((workouts.length / 4) * 100));
+const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
+
+/* MOVE — anchored to WHO physical-activity guidelines:
+   150 min/wk moderate aerobic + 2 strength sessions/wk; steps target 8k/day
+   (mortality benefit plateaus ~7.5–8.5k, Paluch 2022 meta-analysis). */
+function pillarMove(workouts, metrics = []) {
+  if (!workouts.length && !metrics.some(m => m.steps != null)) return null;
+  const parts = [];
+  const isStrength = w => /strength|weight|gym|lift|resistance|dumbbell/i.test(w.desc || '') ||
+    (w.detail?.type || '').includes('strength');
+  const strength = workouts.filter(isStrength).length;
+  const cardioMin = workouts.filter(w => !isStrength(w))
+    .reduce((a, w) => a + (w.detail?.moving_time_s ? w.detail.moving_time_s / 60 : 40), 0);
+  if (workouts.length) {
+    parts.push(clamp(strength / 2 * 100));          // WHO: 2 strength sessions
+    parts.push(clamp(cardioMin / 150 * 100));       // WHO: 150 moderate minutes
+  }
+  const steps = metrics.map(m => m.steps).filter(v => v != null);
+  if (steps.length) parts.push(clamp(mean(steps) / 8000 * 100));
+  return clamp(Math.round(mean(parts)));
 }
 
-function pillarFuel(foods) {
-  if (!foods.length) return null;
-  // v0: rewards logging consistency (≈3 meals/day) + home-cooked ratio
-  const daysLogged = new Set(foods.map(f => f.ts.slice(0, 10))).size;
-  const homeCooked = foods.filter(f => f.source === 'cookbook').length / foods.length;
-  return clamp(Math.round((daysLogged / 7) * 70 + homeCooked * 30));
+/* FUEL — logging consistency (self-monitoring is the strongest predictor of
+   weight-loss success, Burke 2011), home-cooked ratio, hydration vs the EFSA
+   ~2 L/day (≈8 glasses), and alcohol with HARM-REDUCTION credit: absolute
+   score follows the UK CMO low-risk guideline (≤14 units/wk), but improving
+   on your own 4-week baseline scores well even before you're under it. */
+function pillarFuel(foods, checkins = [], priorCheckins = []) {
+  if (!foods.length && !checkins.length) return null;
+  const parts = [];
+  if (foods.length) {
+    const daysLogged = new Set(foods.map(f => f.ts.slice(0, 10))).size;
+    const homeCooked = foods.filter(f => f.source === 'cookbook').length / foods.length;
+    parts.push(clamp(daysLogged / 7 * 100));
+    parts.push(clamp(homeCooked * 100));
+  }
+  const water = checkins.map(c => c.water).filter(v => v != null);
+  if (water.length) parts.push(clamp(mean(water) / 8 * 100));
+  const drinkDays = checkins.filter(c => c.drinks != null);
+  if (drinkDays.length) {
+    const week = drinkDays.reduce((a, c) => a + c.drinks, 0);
+    const absolute = week <= 2 ? 100 : week <= 7 ? 90 : week <= 14 ? 70 : clamp(70 - (week - 14) * 6);
+    const priorDays = priorCheckins.filter(c => c.drinks != null);
+    let alcohol = absolute;
+    if (priorDays.length >= 3) {
+      const priorWeekly = priorDays.reduce((a, c) => a + c.drinks, 0) / priorDays.length * 7;
+      if (priorWeekly > 0) {
+        const improvement = Math.max(0, Math.min(1, (priorWeekly - week) / priorWeekly));
+        alcohol = Math.max(absolute, Math.round(60 + 40 * improvement)); // cutting 5 → 1 scores ~92
+      }
+    }
+    parts.push(clamp(alcohol));
+  }
+  return parts.length ? clamp(Math.round(mean(parts))) : null;
 }
 
+/* RECOVER — Garmin sleep score targets the 7–9 h consensus range (National
+   Sleep Foundation); Body Battery and self-reported sleep/energy fill gaps. */
 function pillarRecover(checkins, metrics = []) {
   if (!checkins.length && !metrics.length) return null;
-  const mean = arr => arr.reduce((a, b) => a + b, 0) / arr.length;
   const parts = [];
   if (checkins.length) {
     const sleep = mean(checkins.map(c => c.sleep ?? 3));

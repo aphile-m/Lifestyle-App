@@ -2,7 +2,7 @@
 
 **Name:** *Trainer App*
 **Platforms:** Android (Capacitor) + Web (installable PWA)
-**Version:** Spec v1.5 — 2026-07-22
+**Version:** Spec v1.6 — 2026-07-24
 **Owner:** Aphile M
 
 ---
@@ -167,7 +167,24 @@ metric.
   triggers an honest re-plan if it isn't).
 - Shareable progress card (optional) showing score trajectory without exposing weight.
 
-### 3.4 Measurement & benchmarking protocol
+### 3.4 Scoring science (v1, shipped)
+Pillar sub-scores are anchored to published guidance rather than arbitrary heuristics:
+
+| Input | Anchor | Scoring |
+|---|---|---|
+| Aerobic activity | WHO: 150 min/wk moderate | minutes ÷ 150 |
+| Strength training | WHO: 2 sessions/wk | sessions ÷ 2 |
+| Steps | ~8k/day (Paluch 2022 meta-analysis plateau) | avg ÷ 8 000 |
+| Sleep | 7–9 h consensus (NSF) via Garmin sleep score | direct 0–100 |
+| Hydration | EFSA ~2 L/day ≈ 8 glasses | avg glasses ÷ 8 |
+| Alcohol | UK CMO low-risk ≤14 units/wk **plus harm-reduction credit**: improving on your own 4-week baseline scores well even above guideline (behaviour-change evidence: self-referenced progress sustains change) | max(absolute, trend) |
+| Food logging | self-monitoring strongest predictor of loss (Burke 2011) | days logged ÷ 7 |
+| Body | trend-weight slope vs sustainable band | unchanged |
+
+Water and drinks are captured as one-tap counters in the evening check-in. Missing inputs
+are excluded (weights renormalise) — never scored as failure.
+
+### 3.5 Measurement & benchmarking protocol
 Progress tracking at appropriate intervals, each metric on the cadence where change is
 actually visible — measuring more often than the body can change just manufactures noise
 (Vic explains this when someone tries):
