@@ -14,6 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
+const WEB_VERSION = 25; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -77,6 +78,18 @@ initOnboarding({
     checkNativeUpdate();
   }
 })();
+
+/* The Android shell resumes this same page for days when reopened from recents,
+   so freshly deployed web updates never arrived without a force-close. Reload on
+   resume once the loaded build is stale — but never mid-workout, over an open
+   sheet, or during the setup journey. */
+const loadedAt = Date.now();
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState !== 'visible') return;
+  const stale = Date.now() - loadedAt > 30 * 60e3;
+  const busy = history.state?.player || document.querySelector('#overlay-root .overlay') || journeyActive();
+  if (stale && !busy) location.reload();
+});
 
 /* Android shell: web updates arrive live (the shell loads the hosted app), but
    the APK itself is versioned — check the latest release at launch and offer it. */
@@ -786,7 +799,9 @@ async function me(root) {
       el('button', { class: 'chip', onclick: stravaSheet },
         stravaConnected() ? 'Strava ✓' : 'Connect Strava'),
       el('button', { class: 'chip', onclick: metricsSheet }, '⌚ Garmin day log'),
-      el('button', { class: 'chip', onclick: () => startJourney() }, '🚀 Replay setup journey'))));
+      el('button', { class: 'chip', onclick: () => startJourney() }, '🚀 Replay setup journey')),
+    el('p', { class: 'muted', style: 'margin-top:10px;font-size:12px' },
+      `Web build v${WEB_VERSION} — updates itself when you reopen the app.`)));
 }
 
 const fmtMinSec = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
