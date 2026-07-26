@@ -54,7 +54,9 @@ create table if not exists trainer_checkins (
   sleep_1_5   int check (sleep_1_5 between 1 and 5),
   energy_1_5  int check (energy_1_5 between 1 and 5),
   water_glasses int check (water_glasses between 0 and 30),  -- EFSA ~2 L/day ≈ 8 glasses
-  drinks      int check (drinks between 0 and 30),           -- UK CMO low-risk: ≤14 units/wk
+  drinks      numeric(4,1),                           -- alcohol UNITS (UK CMO low-risk: ≤14/wk)
+  drinks_detail jsonb,                                -- typed counts {beer,wine,spirit,cocktail}
+  caffeine_cups int check (caffeine_cups between 0 and 20),  -- coffees (~100mg each; guide ≤4)
 
   soreness    jsonb not null default '{}'::jsonb,    -- body-map areas (v2)
   unique (user_id, day)

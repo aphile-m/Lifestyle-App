@@ -235,8 +235,8 @@ async function today(root) {
 
   // Evening check-in with journal quick-tags (SPEC §6)
   root.append(el('div', { class: 'card' },
-    el('h2', {}, 'Evening check-in'),
-    el('p', { class: 'muted' }, 'Tap what happened today, then rate the day. 30 seconds, honest answers.'),
+    el('h2', {}, 'Daily check-in'),
+    el('p', { class: 'muted' }, 'Rate the day in 30 seconds — and tap an earlier day to backfill one you missed.'),
     checkinForm()));
 }
 
@@ -245,34 +245,96 @@ function todayGreeting() {
   return h < 12 ? 'Ready to crush today?' : h < 18 ? 'How’s the day tracking?' : 'Time for the evening review.';
 }
 
+/* One standard-drink ≈ UK units per serving type (population averages). */
+const DRINK_UNITS = { beer: 1.7, wine: 2.3, spirit: 1.4, cocktail: 2.0 };
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
 function checkinForm() {
-  const tags = new Set();
-  const chipRow = el('div', { class: 'chips', style: 'margin:10px 0' },
-    ...JOURNAL_TAGS.map(t => el('button', {
-      class: 'chip',
-      onclick: e => { e.target.classList.toggle('on'); tags.has(t) ? tags.delete(t) : tags.add(t); },
-    }, t)));
-  const sleep = ratingRow('Sleep quality');
-  const energy = ratingRow('Energy / mood');
-  const water = counterRow('💧 Water (glasses)', 0);
-  const drinks = counterRow('🍺 Alcoholic drinks', 0);
-  return el('div', {}, chipRow, sleep.row, energy.row, water.row, drinks.row,
-    el('button', {
-      class: 'btn', style: 'margin-top:10px', onclick: async () => {
-        await logs.add('journal', { tags: [...tags] });
-        await logs.add('checkins', { sleep: sleep.value(), energy: energy.value(), water: water.value(), drinks: drinks.value() });
-        toast('Checked in. Vic sees this.');
-        trySync();
-        go('today');
-      },
-    }, 'Save check-in'));
+  const wrap = el('div', {});
+  (async () => {
+    const [recent, journal] = await Promise.all([logs.recent('checkins', 8), logs.recent('journal', 8)]);
+    const byDay = {}; recent.forEach(r => { byDay[r.ts.slice(0, 10)] = r; });
+    const jByDay = {}; journal.forEach(r => { jByDay[r.ts.slice(0, 10)] = r; });
+    const days = [];
+    for (let d = 6; d >= 0; d--) days.push(new Date(Date.now() - d * 86400e3).toISOString().slice(0, 10));
+    let selected = todayIso();
+
+    const strip = el('div', { class: 'chips', style: 'margin-bottom:12px' });
+    const formBox = el('div', {});
+    const dayLabel = iso => {
+      if (iso === todayIso()) return 'Today';
+      const d = new Date(iso + 'T12:00:00');
+      return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + d.getDate();
+    };
+    const renderStrip = () => strip.replaceChildren(...days.map(d => el('button', {
+      class: 'chip' + (d === selected ? ' on' : ''),
+      onclick: () => { selected = d; renderStrip(); renderForm(); },
+    }, dayLabel(d) + (byDay[d] ? ' ✓' : ''))));
+
+    const renderForm = () => {
+      const ex = byDay[selected] || {};
+      const jx = jByDay[selected];
+      const tags = new Set(jx?.tags || []);
+      const chipRow = el('div', { class: 'chips', style: 'margin:10px 0' },
+        ...JOURNAL_TAGS.map(t => el('button', {
+          class: 'chip' + (tags.has(t) ? ' on' : ''),
+          onclick: e => { e.target.classList.toggle('on'); tags.has(t) ? tags.delete(t) : tags.add(t); },
+        }, t)));
+      const sleep = ratingRow('Sleep quality', ex.sleep ?? 3);
+      const energy = ratingRow('Energy / mood', ex.energy ?? 3);
+      const water = counterRow('💧 Water (glasses)', ex.water ?? 0);
+      const coffee = counterRow('☕ Coffee (cups)', ex.coffee ?? 0);
+
+      // alcohol by type — converted to units, since a beer is not a double whisky
+      const det = { beer: 0, wine: 0, spirit: 0, cocktail: 0, ...(ex.drinksDetail || {}) };
+      const unitsLine = el('p', { class: 'muted', style: 'font-size:13px;margin:2px 0 0 150px' }, '');
+      const updUnits = () => {
+        const u = Object.entries(det).reduce((a, [k, n]) => a + n * DRINK_UNITS[k], 0);
+        unitsLine.textContent = u ? `≈ ${u.toFixed(1)} units (guide: ≤14/week)` : 'No alcohol today ✓';
+      };
+      const drinkRows = [
+        ['🍺 Beer / cider', 'beer'], ['🍷 Wine (glass)', 'wine'],
+        ['🥃 Spirits (tot)', 'spirit'], ['🍹 Cocktail', 'cocktail'],
+      ].map(([label, key]) => counterRow(label, det[key], v => { det[key] = v; updUnits(); }));
+      updUnits();
+
+      formBox.replaceChildren(chipRow, sleep.row, energy.row, water.row, coffee.row,
+        ...drinkRows.map(r => r.row), unitsLine,
+        el('button', {
+          class: 'btn', style: 'margin-top:12px', onclick: async () => {
+            const units = Math.round(Object.entries(det).reduce((a, [k, n]) => a + n * DRINK_UNITS[k], 0) * 10) / 10;
+            const vals = {
+              sleep: sleep.value(), energy: energy.value(), water: water.value(), coffee: coffee.value(),
+              drinks: units, drinksDetail: { ...det },
+            };
+            const ts = selected === todayIso() ? new Date().toISOString() : new Date(selected + 'T20:00:00').toISOString();
+            const existing = byDay[selected];
+            if (existing) await logs.put('checkins', { ...existing, ...vals, synced: false });
+            else await logs.add('checkins', { ts, ...vals });
+            const jrow = jByDay[selected];
+            if (jrow) await logs.put('journal', { ...jrow, tags: [...tags], synced: false });
+            else await logs.add('journal', { ts, tags: [...tags] });
+            toast(selected === todayIso() ? 'Checked in. Vic sees this.' : `Backfilled ${dayLabel(selected)} ✓`);
+            trySync();
+            go('today');
+          },
+        }, selected === todayIso() ? 'Save check-in' : `Save for ${dayLabel(selected)}`));
+    };
+    renderStrip(); renderForm();
+    wrap.append(strip, formBox);
+  })();
+  return wrap;
 }
 
-function counterRow(label, start = 0) {
+function counterRow(label, start = 0, onChange = null) {
   let val = start;
   const num = el('b', { style: 'min-width:26px;text-align:center' }, String(val));
   const btn = (txt, d) => el('button', {
-    class: 'chip', onclick: () => { val = Math.max(0, Math.min(30, val + d)); num.textContent = String(val); },
+    class: 'chip', onclick: () => {
+      val = Math.max(0, Math.min(30, val + d));
+      num.textContent = String(val);
+      if (onChange) onChange(val);
+    },
   }, txt);
   return {
     row: el('div', { class: 'row', style: 'margin:8px 0' },
@@ -282,10 +344,10 @@ function counterRow(label, start = 0) {
   };
 }
 
-function ratingRow(label) {
-  let val = 3;
+function ratingRow(label, initial = 3) {
+  let val = initial;
   const btns = [1, 2, 3, 4, 5].map(n => el('button', {
-    class: 'chip' + (n === 3 ? ' on' : ''),
+    class: 'chip' + (n === initial ? ' on' : ''),
     onclick: e => {
       val = n;
       [...e.target.parentNode.children].forEach(c => c.classList.remove('on'));

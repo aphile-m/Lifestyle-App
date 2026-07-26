@@ -124,8 +124,8 @@ const MAP = {
   },
   checkins: {
     table: 'trainer_checkins', conflict: 'user_id,day',
-    up: r => ({ day: day(r.ts), sleep_1_5: r.sleep ?? null, energy_1_5: r.energy ?? null, water_glasses: r.water ?? null, drinks: r.drinks ?? null }),
-    down: t => ({ ts: t.day + 'T12:00:00.000Z', sleep: t.sleep_1_5, energy: t.energy_1_5, water: t.water_glasses, drinks: t.drinks }),
+    up: r => ({ day: day(r.ts), sleep_1_5: r.sleep ?? null, energy_1_5: r.energy ?? null, water_glasses: r.water ?? null, drinks: r.drinks ?? null, drinks_detail: r.drinksDetail ?? null, caffeine_cups: r.coffee ?? null }),
+    down: t => ({ ts: t.day + 'T12:00:00.000Z', sleep: t.sleep_1_5, energy: t.energy_1_5, water: t.water_glasses, drinks: t.drinks != null ? Number(t.drinks) : t.drinks, drinksDetail: t.drinks_detail, coffee: t.caffeine_cups }),
   },
   measurements: {
     table: 'trainer_measurements',
