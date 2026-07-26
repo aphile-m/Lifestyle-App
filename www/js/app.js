@@ -14,7 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 32; // bump together with CACHE in sw.js
+const WEB_VERSION = 33; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -437,6 +437,7 @@ async function insightsScreen() {
   const send = () => {
     const text = input.value.trim();
     if (!text) return;
+    if (vicThinking) return toast('Vic is mid-reply — give him a second.');
     input.value = '';
     sendToVic(text, insightsCtx);
   };
@@ -627,6 +628,10 @@ const thinkRow = () => el('div', { class: 'bubble vic think-row' },
    Every turn is saved to IndexedDB AND synced to the cloud (trainer_chat). */
 async function sendToVic(text, extraContext = '') {
   if (!settings.apiKey) { apiKeySheet(); return; }
+  // one reply at a time per conversation — a second send mid-reply would race
+  // the same thread and interleave the history (parallel PLAN/MEAL jobs are
+  // separate requests and are fine)
+  if (vicThinking) { toast('Vic is mid-reply — give him a second.'); return; }
   chatHistory.push({ role: 'user', content: text });
   await logs.add('chat', { role: 'user', text });
   vicThinking = true;
@@ -687,6 +692,7 @@ async function coach(root) {
   const send = () => {
     const text = input.value.trim();
     if (!text) return;
+    if (vicThinking) return toast('Vic is mid-reply — give him a second.');
     input.value = '';
     sendToVic(text);
   };
