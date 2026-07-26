@@ -123,27 +123,27 @@ const MAP = {
     down: t => ({ ts: t.ts, desc: t.description, rpe: t.rpe, planned: t.planned, detail: t.detail, stravaId: t.strava_id }),
   },
   checkins: {
-    table: 'trainer_checkins', conflict: 'user_id,day',
+    table: 'trainer_checkins', conflict: 'user_id,day', orderBy: 'day',
     up: r => ({ day: day(r.ts), sleep_1_5: r.sleep ?? null, energy_1_5: r.energy ?? null, water_glasses: r.water ?? null, drinks: r.drinks ?? null, drinks_detail: r.drinksDetail ?? null, caffeine_cups: r.coffee ?? null }),
     down: t => ({ ts: t.day + 'T12:00:00.000Z', sleep: t.sleep_1_5, energy: t.energy_1_5, water: t.water_glasses, drinks: t.drinks != null ? Number(t.drinks) : t.drinks, drinksDetail: t.drinks_detail, coffee: t.caffeine_cups }),
   },
   measurements: {
-    table: 'trainer_measurements',
+    table: 'trainer_measurements', conflict: 'user_id,ts', // rows are editable in place
     up: r => ({ ts: r.ts, waist_cm: r.waist ?? null, hips_cm: r.hips ?? null, chest_cm: r.chest ?? null, arm_cm: r.arm ?? null, thigh_cm: r.thigh ?? null }),
     down: t => ({ ts: t.ts, waist: t.waist_cm && +t.waist_cm, hips: t.hips_cm && +t.hips_cm, chest: t.chest_cm && +t.chest_cm, arm: t.arm_cm && +t.arm_cm, thigh: t.thigh_cm && +t.thigh_cm }),
   },
   benchmarks: {
-    table: 'trainer_benchmarks',
+    table: 'trainer_benchmarks', conflict: 'user_id,ts', // rows are editable in place
     up: r => ({ ts: r.ts, resting_hr: r.restingHr ?? null, run_1600m_sec: r.runSec ?? null, pushups_max: r.pushups ?? null, plank_sec: r.plankSec ?? null, goblet_squat_reps: r.squatReps ?? null, goblet_squat_kg: r.squatKg ?? null }),
     down: t => ({ ts: t.ts, restingHr: t.resting_hr, runSec: t.run_1600m_sec, pushups: t.pushups_max, plankSec: t.plank_sec, squatReps: t.goblet_squat_reps, squatKg: t.goblet_squat_kg && +t.goblet_squat_kg }),
   },
   metrics: {
-    table: 'trainer_daily_metrics', conflict: 'user_id,day',
+    table: 'trainer_daily_metrics', conflict: 'user_id,day', orderBy: 'day',
     up: r => ({ day: day(r.ts), sleep_score: r.sleepScore ?? null, resting_hr: r.restingHr ?? null, stress_avg: r.stress ?? null, body_battery_high: r.bodyBattery ?? null, steps: r.steps ?? null }),
     down: t => ({ ts: t.day + 'T12:00:00.000Z', sleepScore: t.sleep_score, restingHr: t.resting_hr, stress: t.stress_avg, bodyBattery: t.body_battery_high, steps: t.steps }),
   },
   plans: {
-    table: 'trainer_plans',
+    table: 'trainer_plans', orderBy: 'created_at',
     up: r => ({ created_at: r.ts, active: !!r.active, month_theme: r.plan?.month_theme || null, start_date: r.plan?.start_date || null, plan: r.plan }),
     down: t => ({ ts: t.created_at, active: t.active, plan: t.plan }),
   },
@@ -199,7 +199,7 @@ export async function pullAll() {
   for (const [store, m] of Object.entries(MAP)) {
     const local = await logs.all(store);
     if (local.length) { counts[store] = 0; continue; }
-    const remote = await restGet(m.table, 'select=*&order=' + (m.conflict ? 'day' : m.table === 'trainer_plans' ? 'created_at' : 'ts'));
+    const remote = await restGet(m.table, 'select=*&order=' + (m.orderBy || 'ts'));
     for (const t of remote) await logs.add(store, { ...m.down(t), synced: true });
     counts[store] = remote.length;
   }

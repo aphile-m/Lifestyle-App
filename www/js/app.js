@@ -14,7 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 28; // bump together with CACHE in sw.js
+const WEB_VERSION = 29; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -1066,39 +1066,41 @@ async function me(root) {
     ? 'Never logged — due now.'
     : due ? `Last done ${daysSince(row)}d ago — due now.`
       : `Last done ${daysSince(row)}d ago · next in ${cadence - daysSince(row)}d.`;
-  const metricRow = (label, val, howKey = null) => el('div', {
+  const metricRow = (label, val, entryKey, howKey = null) => el('div', {
     class: 'row', style: 'justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)',
   },
     el('span', { style: 'font-size:14px' }, label,
       howKey ? el('button', { class: 'howto', onclick: () => benchHowToSheet(howKey) }, 'how?') : null),
     val != null
-      ? el('span', { style: 'font-weight:700;font-variant-numeric:tabular-nums' }, val)
-      : el('span', { class: 'chip out' }, 'outstanding'));
+      ? el('span', { class: 'row', style: 'gap:8px' },
+          el('span', { style: 'font-weight:700;font-variant-numeric:tabular-nums' }, val),
+          el('button', { class: 'howto', style: 'margin-left:0', onclick: () => metricEntrySheet(entryKey) }, 'edit'))
+      : el('button', { class: 'chip out', onclick: () => metricEntrySheet(entryKey) }, '+ enter'));
 
   root.append(el('div', { class: 'card' },
     el('h2', {}, 'Tape measurements — every 4 weeks'),
     el('p', { class: measDue ? 'did-you-know' : 'muted', style: 'font-size:13px;margin-bottom:4px' },
       statusLine(meas, measDue, 28) + (!meas ? ' Your first plan waits on these.' : '')),
-    metricRow('Waist', meas?.waist != null ? `${meas.waist} cm` : null),
-    metricRow('Hips', meas?.hips != null ? `${meas.hips} cm` : null),
-    metricRow('Chest', meas?.chest != null ? `${meas.chest} cm` : null),
-    metricRow('Upper arm', meas?.arm != null ? `${meas.arm} cm` : null),
-    metricRow('Thigh', meas?.thigh != null ? `${meas.thigh} cm` : null),
-    el('button', { class: 'btn ghost', style: 'margin-top:12px', onclick: measurementSheet }, '📏 Log tape measurements')));
+    metricRow('Waist', meas?.waist != null ? `${meas.waist} cm` : null, 'waist'),
+    metricRow('Hips', meas?.hips != null ? `${meas.hips} cm` : null, 'hips'),
+    metricRow('Chest', meas?.chest != null ? `${meas.chest} cm` : null, 'chest'),
+    metricRow('Upper arm', meas?.arm != null ? `${meas.arm} cm` : null, 'arm'),
+    metricRow('Thigh', meas?.thigh != null ? `${meas.thigh} cm` : null, 'thigh'),
+    el('button', { class: 'btn ghost', style: 'margin-top:12px', onclick: measurementSheet }, '📏 Log all five at once')));
 
   root.append(el('div', { class: 'card' },
     el('h2', {}, 'Benchmarks — every 8 weeks'),
     el('p', { class: benchDue ? 'did-you-know' : 'muted', style: 'font-size:13px;margin-bottom:4px' },
       statusLine(bench, benchDue, 56)),
-    metricRow('Resting heart rate', bench?.restingHr != null ? `${bench.restingHr} bpm` : null, 'hr'),
-    metricRow('1.6 km run', bench?.runSec ? fmtMinSec(bench.runSec) : null, 'run'),
-    metricRow('Push-ups (max)', bench?.pushups != null ? `${bench.pushups} reps` : null, 'pushups'),
-    metricRow('Plank hold', bench?.plankSec != null ? `${bench.plankSec} s` : null, 'plank'),
+    metricRow('Resting heart rate', bench?.restingHr != null ? `${bench.restingHr} bpm` : null, 'hr', 'hr'),
+    metricRow('1.6 km run', bench?.runSec ? fmtMinSec(bench.runSec) : null, 'run', 'run'),
+    metricRow('Push-ups (max)', bench?.pushups != null ? `${bench.pushups} reps` : null, 'pushups', 'pushups'),
+    metricRow('Plank hold', bench?.plankSec != null ? `${bench.plankSec} s` : null, 'plank', 'plank'),
     metricRow('Goblet squat',
-      bench?.squatReps != null ? `${bench.squatReps} reps${bench.squatKg ? ` @ ${bench.squatKg} kg` : ''}` : null, 'squat'),
+      bench?.squatReps != null ? `${bench.squatReps} reps${bench.squatKg ? ` @ ${bench.squatKg} kg` : ''}` : null, 'squat', 'squat'),
     el('p', { class: 'muted', style: 'font-size:12px;margin-top:8px' },
       'Tap “how?” on any test for step-by-step instructions with an illustration.'),
-    el('button', { class: 'btn ghost', style: 'margin-top:8px', onclick: benchmarkSheet }, '⏱ Log benchmarks')));
+    el('button', { class: 'btn ghost', style: 'margin-top:8px', onclick: benchmarkSheet }, '⏱ Log all benchmarks at once')));
 
   const p = settings.profile;
   root.append(el('div', { class: 'card' },
@@ -1180,13 +1182,76 @@ function numField(label, placeholder, attrs = {}) {
   return { row: el('div', { class: 'field' }, el('label', {}, label), input), value: () => parseFloat(input.value) || null };
 }
 
-function measurementSheet() {
+/* A measuring "session" is one row filled in over up to 14 days. Saving merges
+   non-null values into the current session row instead of adding a fresh row —
+   a later partial save must never mask an earlier entry (the vanished-run bug). */
+async function saveSessionValues(store, patch) {
+  const clean = Object.fromEntries(Object.entries(patch).filter(([, v]) => v != null));
+  if (!Object.keys(clean).length) return false;
+  const rows = (await logs.all(store)).sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
+  const latest = rows[rows.length - 1];
+  if (latest && (Date.now() - Date.parse(latest.ts)) / 86400e3 <= 14) {
+    await logs.put(store, { ...latest, ...clean, synced: false });
+  } else {
+    await logs.add(store, clean);
+  }
+  return true;
+}
+
+/* Single-metric entry/edit — one small sheet per measurement or benchmark. */
+const METRIC_ENTRY = {
+  waist: { store: 'measurements', title: 'Waist', fields: [['waist', 'Waist (cm) — at the navel, relaxed', 'e.g. 94.5']] },
+  hips: { store: 'measurements', title: 'Hips', fields: [['hips', 'Hips (cm) — widest point', 'e.g. 104']] },
+  chest: { store: 'measurements', title: 'Chest', fields: [['chest', 'Chest (cm) — nipple line', 'e.g. 102']] },
+  arm: { store: 'measurements', title: 'Upper arm', fields: [['arm', 'Upper arm (cm) — flexed, widest', 'e.g. 34']] },
+  thigh: { store: 'measurements', title: 'Thigh', fields: [['thigh', 'Thigh (cm) — widest point', 'e.g. 58']] },
+  hr: { store: 'benchmarks', title: 'Resting heart rate', how: 'hr',
+    fields: [['restingHr', 'Resting heart rate (bpm) — morning, before coffee', 'e.g. 62', { step: '1' }]] },
+  run: { store: 'benchmarks', title: '1.6 km run', how: 'run',
+    fields: [['runMin', '1.6 km run — minutes', 'e.g. 9', { step: '1' }], ['runSecPart', '…and seconds', 'e.g. 30', { step: '1' }]],
+    patch: v => ({ runSec: ((v.runMin || 0) * 60 + (v.runSecPart || 0)) || null }) },
+  pushups: { store: 'benchmarks', title: 'Push-ups', how: 'pushups',
+    fields: [['pushups', 'Push-ups — max unbroken', 'e.g. 18', { step: '1' }]] },
+  plank: { store: 'benchmarks', title: 'Plank hold', how: 'plank',
+    fields: [['plankSec', 'Plank hold (seconds)', 'e.g. 60', { step: '1' }]] },
+  squat: { store: 'benchmarks', title: 'Goblet squat', how: 'squat',
+    fields: [['squatReps', 'Goblet squat — reps', 'e.g. 15', { step: '1' }], ['squatKg', '…with dumbbell (kg)', 'e.g. 10']] },
+};
+
+async function metricEntrySheet(key) {
+  const spec = METRIC_ENTRY[key];
+  const current = (spec.store === 'measurements' ? await latestMeasurement() : await latestBenchmark()) || {};
+  const pre = {};
+  for (const [fk] of spec.fields) pre[fk] = current[fk];
+  if (key === 'run' && current.runSec) {
+    pre.runMin = Math.floor(current.runSec / 60);
+    pre.runSecPart = current.runSec % 60;
+  }
+  const inputs = spec.fields.map(([fk, label, ph, attrs]) =>
+    [fk, numField(label, ph, { ...(attrs || {}), ...(pre[fk] != null ? { value: pre[fk] } : {}) })]);
+  const close = sheet(spec.title,
+    spec.how ? el('div', { style: 'display:flex;justify-content:center;margin:2px 0 8px' },
+      exerciseAnim(BENCH_GUIDES[spec.how].art, 4)) : null,
+    ...inputs.map(([, f]) => f.row),
+    el('button', {
+      class: 'btn', onclick: async () => {
+        const vals = Object.fromEntries(inputs.map(([fk, f]) => [fk, f.value()]));
+        const patch = spec.patch ? spec.patch(vals) : vals;
+        if (!(await saveSessionValues(spec.store, patch))) return toast('Enter a number first, champ.');
+        close(); toast(`${spec.title} saved ✓`); trySync(); goCurrent('me');
+      },
+    }, 'Save'));
+}
+
+async function measurementSheet() {
+  const cur = (await latestMeasurement()) || {};
+  const pf = v => v != null ? { value: v } : {};
   const f = {
-    waist: numField('Waist (cm) — at the navel, relaxed', 'e.g. 94.5'),
-    hips: numField('Hips (cm) — widest point', 'e.g. 104'),
-    chest: numField('Chest (cm) — nipple line', 'e.g. 102'),
-    arm: numField('Upper arm (cm) — flexed, widest', 'e.g. 34'),
-    thigh: numField('Thigh (cm) — widest point', 'e.g. 58'),
+    waist: numField('Waist (cm) — at the navel, relaxed', 'e.g. 94.5', pf(cur.waist)),
+    hips: numField('Hips (cm) — widest point', 'e.g. 104', pf(cur.hips)),
+    chest: numField('Chest (cm) — nipple line', 'e.g. 102', pf(cur.chest)),
+    arm: numField('Upper arm (cm) — flexed, widest', 'e.g. 34', pf(cur.arm)),
+    thigh: numField('Thigh (cm) — widest point', 'e.g. 58', pf(cur.thigh)),
   };
   const close = sheet('Tape measurements',
     el('p', { class: 'muted', style: 'margin-bottom:12px' },
@@ -1195,32 +1260,34 @@ function measurementSheet() {
     el('button', {
       class: 'btn', onclick: async () => {
         const vals = Object.fromEntries(Object.entries(f).map(([k, x]) => [k, x.value()]));
-        if (!Object.values(vals).some(v => v)) return toast('At least one measurement, champ.');
-        await logs.add('measurements', vals);
+        if (!(await saveSessionValues('measurements', vals))) return toast('At least one measurement, champ.');
         close(); toast('Measurements saved.'); trySync(); goCurrent('me');
       },
     }, 'Save measurements'));
 }
 
-function benchmarkSheet() {
-  const hr = numField('Resting heart rate (bpm) — morning, before coffee', 'e.g. 62', { step: '1' });
-  const runM = numField('1.6 km run — minutes', 'e.g. 9', { step: '1' });
-  const runS = numField('…and seconds', 'e.g. 30', { step: '1' });
-  const push = numField('Push-ups — max unbroken', 'e.g. 18', { step: '1' });
-  const plank = numField('Plank hold (seconds)', 'e.g. 60', { step: '1' });
-  const sqReps = numField('Goblet squat — reps', 'e.g. 15', { step: '1' });
-  const sqKg = numField('…with dumbbell (kg)', 'e.g. 10');
+async function benchmarkSheet() {
+  const cur = (await latestBenchmark()) || {};
+  const pf = v => v != null ? { value: v } : {};
+  const hr = numField('Resting heart rate (bpm) — morning, before coffee', 'e.g. 62', { step: '1', ...pf(cur.restingHr) });
+  const runM = numField('1.6 km run — minutes', 'e.g. 9', { step: '1', ...pf(cur.runSec ? Math.floor(cur.runSec / 60) : null) });
+  const runS = numField('…and seconds', 'e.g. 30', { step: '1', ...pf(cur.runSec ? cur.runSec % 60 : null) });
+  const push = numField('Push-ups — max unbroken', 'e.g. 18', { step: '1', ...pf(cur.pushups) });
+  const plank = numField('Plank hold (seconds)', 'e.g. 60', { step: '1', ...pf(cur.plankSec) });
+  const sqReps = numField('Goblet squat — reps', 'e.g. 15', { step: '1', ...pf(cur.squatReps) });
+  const sqKg = numField('…with dumbbell (kg)', 'e.g. 10', pf(cur.squatKg));
   const close = sheet('Fitness & strength benchmarks',
     el('p', { class: 'muted', style: 'margin-bottom:12px' },
-      'Every 8 weeks, same conditions. Warm up first; run route should be repeatable.'),
+      'Every 8 weeks, same conditions. Warm up first; run route should be repeatable. Blanks keep their previous value.'),
     hr.row, runM.row, runS.row, push.row, plank.row, sqReps.row, sqKg.row,
     el('button', {
       class: 'btn', onclick: async () => {
         const runSec = (runM.value() || 0) * 60 + (runS.value() || 0);
-        await logs.add('benchmarks', {
+        const saved = await saveSessionValues('benchmarks', {
           restingHr: hr.value(), runSec: runSec || null, pushups: push.value(),
           plankSec: plank.value(), squatReps: sqReps.value(), squatKg: sqKg.value(),
         });
+        if (!saved) return toast('Enter at least one result, champ.');
         close(); toast('Benchmarks saved.'); trySync(); goCurrent('me');
       },
     }, 'Save benchmarks'));
@@ -1294,7 +1361,9 @@ function benchHowToSheet(key) {
     el('p', { class: 'muted', style: 'margin-bottom:12px' }, g.why),
     el('ol', { style: 'padding-left:20px;display:flex;flex-direction:column;gap:8px;font-size:14px' },
       ...g.steps.map(s => el('li', {}, s))),
-    el('p', { class: 'did-you-know', style: 'margin-top:12px' }, '✍️ ' + g.record));
+    el('p', { class: 'did-you-know', style: 'margin-top:12px' }, '✍️ ' + g.record),
+    el('button', { class: 'btn', style: 'margin-top:12px', onclick: () => metricEntrySheet(key) },
+      '✍️ Enter my result'));
 }
 
 function apiKeySheet() {

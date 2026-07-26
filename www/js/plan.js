@@ -6,14 +6,22 @@ import { settings, logs } from './store.js';
 
 const MODEL = 'claude-opus-4-8';
 
-export async function latestMeasurement() {
-  const rows = await logs.all('measurements');
-  return rows.length ? rows[rows.length - 1] : null;
+/* Latest known value PER METRIC, merged newest-wins across all rows. A measuring
+   session gets filled in over several saves — reading only the newest row made
+   earlier entries (e.g. this morning's run) vanish behind a later partial save. */
+async function mergedLatest(store) {
+  const rows = (await logs.all(store)).sort((a, b) => Date.parse(a.ts) - Date.parse(b.ts));
+  if (!rows.length) return null;
+  const out = {};
+  for (const r of rows) {
+    for (const [k, v] of Object.entries(r)) {
+      if (v != null && k !== 'id' && k !== 'synced') out[k] = v;
+    }
+  }
+  return out; // ts = newest row's ts (the current session date)
 }
-export async function latestBenchmark() {
-  const rows = await logs.all('benchmarks');
-  return rows.length ? rows[rows.length - 1] : null;
-}
+export const latestMeasurement = () => mergedLatest('measurements');
+export const latestBenchmark = () => mergedLatest('benchmarks');
 export async function activePlan() {
   const rows = await logs.all('plans');
   return rows.filter(p => p.active).pop() || null;

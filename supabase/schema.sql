@@ -107,6 +107,8 @@ create table if not exists trainer_measurements (    -- tape measurements, 4-wee
   waist_cm    numeric(5,1), hips_cm numeric(5,1), chest_cm numeric(5,1),
   arm_cm      numeric(5,1), thigh_cm numeric(5,1)
 );
+-- rows are edited in place during a measuring session; the app upserts on (user_id, ts)
+create unique index if not exists trainer_measurements_user_ts on trainer_measurements(user_id, ts);
 
 create table if not exists trainer_benchmarks (      -- fitness/strength tests, 8-weekly (SPEC §3.4)
   id          uuid primary key default gen_random_uuid(),
@@ -118,6 +120,8 @@ create table if not exists trainer_benchmarks (      -- fitness/strength tests, 
   plank_sec   int,
   goblet_squat_reps int, goblet_squat_kg numeric(4,1)
 );
+-- same in-place editing contract as measurements
+create unique index if not exists trainer_benchmarks_user_ts on trainer_benchmarks(user_id, ts);
 
 -- ---------- Cookbook Sync Module contract (SPEC §5.5) ----------
 -- Cookbook is source of truth for pantry/recipes/shopping; Trainer App for meal plans.
