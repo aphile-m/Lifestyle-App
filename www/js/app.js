@@ -14,7 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 27; // bump together with CACHE in sw.js
+const WEB_VERSION = 28; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -39,6 +39,10 @@ window.addEventListener('popstate', e => {
   if (journeyActive()) return; // the journey handles its own pages
   if (e.state && e.state.tab) go(e.state.tab, true);
 });
+
+/* Log sheets can be opened from anywhere (incl. Vic's in-chat buttons) — after
+   saving, land back on the tab the user was on, not the sheet's home tab. */
+const goCurrent = fallback => go(localStorage.getItem('trainer_tab') || fallback);
 
 document.querySelectorAll('.tab').forEach(b => b.addEventListener('click', () => go(b.dataset.tab)));
 
@@ -428,11 +432,14 @@ async function insightsScreen() {
     try {
       const reply = await askVic(chatHistory.slice(-20), insightsCtx);
       think.remove();
-      const b = el('div', { class: 'bubble vic' }, reply);
+      const { text: replyText, keys } = extractChatActions(reply);
+      const b = el('div', { class: 'bubble vic' }, replyText);
       qa.append(b);
+      const chips = actionChips(keys);
+      if (chips) qa.append(chips);
       b.scrollIntoView({ block: 'end' });
-      chatHistory.push({ role: 'assistant', content: reply });
-      await logs.add('chat', { role: 'assistant', text: reply });
+      chatHistory.push({ role: 'assistant', content: replyText });
+      await logs.add('chat', { role: 'assistant', text: replyText });
     } catch (e) {
       think.remove();
       qa.append(el('div', { class: 'bubble vic' }, '⚠️ ' + e.message));
@@ -586,6 +593,35 @@ function ratingRow(label, initial = 3) {
   };
 }
 
+/* Vic can end a reply with [log:xxx] tags — each becomes a button that opens
+   the matching form right in the chat (the sheets return to the current tab). */
+const CHAT_ACTIONS = {
+  benchmarks: ['⏱ Log benchmarks', () => benchmarkSheet()],
+  tape: ['📏 Log tape measurements', () => measurementSheet()],
+  weight: ['⚖️ Log weight', () => logWeightSheet()],
+  checkin: ['📝 Daily check-in', () => go('today')],
+  workout: ['🏋️ Log workout', () => logWorkoutSheet()],
+  meal: ['🍲 Log meal', () => logMealSheet()],
+};
+function extractChatActions(reply) {
+  const keys = new Set();
+  const text = reply.replace(/\[log:([a-z]+)\]/gi, (m, k) => {
+    if (CHAT_ACTIONS[k.toLowerCase()]) { keys.add(k.toLowerCase()); return ''; }
+    return m;
+  }).replace(/\n{3,}/g, '\n\n').trim();
+  // fallback: he asked for a measuring session but forgot the tag
+  if (!keys.size) {
+    if (/\bbenchmark/i.test(reply)) keys.add('benchmarks');
+    if (/\btape\b|measuring session/i.test(reply)) keys.add('tape');
+  }
+  return { text, keys: [...keys] };
+}
+function actionChips(keys) {
+  if (!keys.length) return null;
+  return el('div', { class: 'chips', style: 'align-self:flex-start' },
+    ...keys.map(k => el('button', { class: 'chip on', onclick: CHAT_ACTIONS[k][1] }, CHAT_ACTIONS[k][0])));
+}
+
 /* ---------------- Coach (Vic) ---------------- */
 async function coach(root) {
   root.append(el('div', { class: 'hey-row', style: 'margin-bottom:8px' },
@@ -619,9 +655,12 @@ async function coach(root) {
     try {
       const reply = await askVic(chatHistory.slice(-20));
       thinking.done();
-      bubble(chat, 'vic', reply);
-      chatHistory.push({ role: 'assistant', content: reply });
-      await logs.add('chat', { role: 'assistant', text: reply });
+      const { text: replyText, keys } = extractChatActions(reply);
+      bubble(chat, 'vic', replyText);
+      const chips = actionChips(keys);
+      if (chips) { chat.append(chips); chips.scrollIntoView({ block: 'end' }); }
+      chatHistory.push({ role: 'assistant', content: replyText });
+      await logs.add('chat', { role: 'assistant', text: replyText });
     } catch (e) {
       thinking.done();
       if (e.message === 'NO_KEY') { apiKeySheet(); return; }
@@ -631,6 +670,30 @@ async function coach(root) {
   input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
   root.append(el('div', { class: 'chat-input' }, input, el('button', { class: 'btn', onclick: send }, 'Send')));
   chat.scrollIntoView(false);
+}
+
+/* Staged progress bar for long Vic jobs (plan/meal-plan generation): the fill
+   creeps toward ~92% over the expected duration while the label walks through
+   the stages, then finish() snaps it to 100%. */
+function vicProgress(stages, expectedMs = 35000) {
+  const label = el('span', { class: 'muted', style: 'font-size:13px' }, stages[0]);
+  const fill = el('i', { style: 'display:block;height:100%;border-radius:3px;background:var(--accent);width:3%;transition:width .8s linear' });
+  const bar = el('span', { style: 'display:block;height:6px;border-radius:3px;background:var(--card-2);overflow:hidden;margin:8px 0 6px' }, fill);
+  const t0 = Date.now();
+  const tick = () => {
+    const f = Math.min(0.92, (Date.now() - t0) / expectedMs);
+    fill.style.width = Math.max(3, f * 100).toFixed(0) + '%';
+    label.textContent = stages[Math.min(stages.length - 1, Math.floor(f * stages.length))];
+  };
+  const timer = setInterval(tick, 800);
+  return {
+    el: el('div', { class: 'grow' },
+      el('div', { class: 'row', style: 'gap:8px' },
+        el('span', { class: 'tdots' }, el('i'), el('i'), el('i')), label),
+      bar),
+    stop: () => clearInterval(timer),
+    finish: () => { clearInterval(timer); fill.style.width = '100%'; },
+  };
 }
 
 /* Animated progress while Vic works: bouncing dots + staged status. */
@@ -669,26 +732,38 @@ async function train(root) {
     return;
   }
 
-  // Gate 2: no plan yet → generate
+  // Gate 2: no plan yet → generate (staged progress bar — never a dead button)
   if (!plan) {
+    const card = el('div', { class: 'card' });
     const btn = el('button', { class: 'btn', style: 'margin-top:10px' }, 'Vic, build my plan');
     btn.addEventListener('click', async () => {
       if (!settings.apiKey) { apiKeySheet(); return; }
-      btn.disabled = true; btn.textContent = 'Vic is planning… (~30s)';
+      const prog = vicProgress([
+        'Reading your measurements…', 'Reading benchmarks & equipment…',
+        'Choosing the month’s theme…', 'Programming weeks 1–3…',
+        'Adding the week-4 deload…', 'Final checks…',
+      ], 40000);
+      card.replaceChildren(
+        el('h2', {}, 'Vic is building your plan'),
+        el('div', { class: 'row', style: 'gap:14px;align-items:center' },
+          vicSprite(64, 'still'), prog.el));
       try {
         await generatePlan();
+        prog.finish();
         toast('Plan ready.');
         trySync();
         go('train');
       } catch (e) {
-        btn.disabled = false; btn.textContent = 'Vic, build my plan';
+        prog.stop();
+        go('train');
         toast(e.message === 'NO_BASELINE' ? 'Measure first — Me tab.' : e.message);
       }
     });
-    root.append(el('div', { class: 'card' },
+    card.append(
       el('h2', {}, 'Ready to plan'),
       el('p', {}, 'Measurements are in. Vic will write a 4-week block: a monthly theme, a focus per week (week 4 deloads), and workouts of the day built from your equipment within your session budget.'),
-      btn));
+      btn);
+    root.append(card);
     return;
   }
 
@@ -866,10 +941,17 @@ async function fuel(root) {
     const btn = el('button', { class: 'btn', style: 'margin-top:6px' }, 'Vic, draft this week');
     btn.addEventListener('click', async () => {
       if (!settings.apiKey) { apiKeySheet(); return; }
-      btn.disabled = true; btn.textContent = 'Vic is planning…';
-      try { mealPlanDraftSheet(await draftMealPlan()); }
+      const prog = vicProgress([
+        'Reading your recipes & pantry…', 'Matching macros to training days…',
+        'Writing the week…', 'Final checks…',
+      ], 30000);
+      const progRow = el('div', { class: 'row', style: 'gap:14px;align-items:center;margin-top:10px' },
+        vicSprite(64, 'still'), prog.el);
+      btn.replaceWith(progRow);
+      try { mealPlanDraftSheet(await draftMealPlan()); prog.finish(); }
       catch (e) { toast(e.message === 'NO_KEY' ? 'Add your API key first.' : e.message); }
-      btn.disabled = false; btn.textContent = 'Vic, draft this week';
+      prog.stop();
+      progRow.replaceWith(btn);
     });
     planCard.append(el('p', { class: 'muted' },
       'Vic drafts dinners from your cookbook recipes and live pantry, macro-matched to training days. You agree it before anything syncs.'), btn);
@@ -1053,7 +1135,7 @@ function logWeightSheet() {
         const kg = parseFloat(input.value);
         if (!kg || kg < 20 || kg > 400) return toast('That doesn’t look like a weight.');
         await logs.add('weights', { kg });
-        close(); toast('Logged. Trend updates in Me.'); trySync(); go('today');
+        close(); toast('Logged. Trend updates in Me.'); trySync(); goCurrent('today');
       },
     }, 'Save'));
   input.focus();
@@ -1071,7 +1153,7 @@ function logMealSheet() {
       class: 'btn', onclick: async () => {
         if (!input.value.trim()) return toast('Say what it was.');
         await logs.add('foods', { desc: input.value.trim(), source });
-        close(); toast('Meal logged.'); trySync(); go('today');
+        close(); toast('Meal logged.'); trySync(); goCurrent('today');
       },
     }, 'Save'));
   input.focus();
@@ -1087,7 +1169,7 @@ function logWorkoutSheet() {
       class: 'btn', onclick: async () => {
         if (!input.value.trim()) return toast('Name the session.');
         await logs.add('workouts', { desc: input.value.trim(), rpe: parseInt(rpe.value) || null });
-        close(); toast('Session logged. Vic sees it.'); trySync(); go('today');
+        close(); toast('Session logged. Vic sees it.'); trySync(); goCurrent('today');
       },
     }, 'Save'));
   input.focus();
@@ -1115,7 +1197,7 @@ function measurementSheet() {
         const vals = Object.fromEntries(Object.entries(f).map(([k, x]) => [k, x.value()]));
         if (!Object.values(vals).some(v => v)) return toast('At least one measurement, champ.');
         await logs.add('measurements', vals);
-        close(); toast('Measurements saved.'); trySync(); go('me');
+        close(); toast('Measurements saved.'); trySync(); goCurrent('me');
       },
     }, 'Save measurements'));
 }
@@ -1139,7 +1221,7 @@ function benchmarkSheet() {
           restingHr: hr.value(), runSec: runSec || null, pushups: push.value(),
           plankSec: plank.value(), squatReps: sqReps.value(), squatKg: sqKg.value(),
         });
-        close(); toast('Benchmarks saved.'); trySync(); go('me');
+        close(); toast('Benchmarks saved.'); trySync(); goCurrent('me');
       },
     }, 'Save benchmarks'));
 }
@@ -1339,7 +1421,7 @@ function metricsSheet() {
         const vals = Object.fromEntries(Object.entries(f).map(([k, x]) => [k, x.value()]));
         if (!Object.values(vals).some(v => v)) return toast('At least one number.');
         await logs.add('metrics', vals);
-        close(); toast('Day logged. Recover pillar sees it.'); trySync(); go('me');
+        close(); toast('Day logged. Recover pillar sees it.'); trySync(); goCurrent('me');
       },
     }, 'Save'));
 }

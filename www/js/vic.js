@@ -70,8 +70,12 @@ week's focus. If no plan exists yet, steer toward the measure-and-benchmark sess
 CURRENT DATA (real, from the app — the only personal stats you may cite):
 ${context}
 
-You cannot yet write to the app's logs or other services; if asked to log something, give
-the exact steps in the app instead, and keep coaching.`;
+You cannot write to the app's logs yourself — but you CAN put the right logging form one
+tap away. Whenever you ask ${profile.name} to log or measure something, end your reply
+with the matching tag(s), each on its own line, chosen from exactly:
+[log:benchmarks] [log:tape] [log:weight] [log:checkin] [log:workout] [log:meal]
+The app hides the tag text and renders a button that opens that form right here in the
+chat. Always use a tag instead of describing menu navigation.`;
 }
 
 async function buildContext() {
