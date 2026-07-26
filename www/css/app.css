@@ -82,7 +82,9 @@ body {
 .chip.on { background: var(--accent); color: var(--accent-ink); font-weight: 700; }
 
 /* --- chat --- */
-.chat { display: flex; flex-direction: column; gap: 10px; padding-bottom: 76px; }
+/* bottom padding must clear the fixed chat-input bar (input ≈72px + breathing
+   room), or the last bubble/action chips get trapped underneath it */
+.chat { display: flex; flex-direction: column; gap: 10px; padding-bottom: 150px; }
 .bubble { max-width: 85%; padding: 12px 14px; border-radius: 16px; white-space: pre-wrap; }
 .bubble.vic { background: var(--card); border-bottom-left-radius: 4px; align-self: flex-start; }
 .bubble.me  { background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; align-self: flex-end; }
