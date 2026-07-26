@@ -14,7 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 35; // bump together with CACHE in sw.js
+const WEB_VERSION = 36; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -813,6 +813,12 @@ async function train(root) {
   // Active plan view: month theme → weekly focus → WOD
   const p = plan.plan;
   const t = sessionForToday(p);
+  if (planJob) { // a rebuild is running — show it over the (soon-replaced) plan
+    const prog = vicProgress(PLAN_STAGES, 40000, planJobStart);
+    root.append(el('div', { class: 'card' },
+      el('h2', {}, 'Vic is rebuilding this block'),
+      el('div', { class: 'row', style: 'gap:14px;align-items:center' }, vicSprite(64, 'still'), prog.el)));
+  }
   root.append(el('div', { class: 'card' },
     el('h2', {}, 'This month'),
     el('p', { style: 'font-weight:700;font-size:18px' }, p.month_theme),
@@ -827,7 +833,9 @@ async function train(root) {
       el('p', {}, t.next ? `Rest day. Next up: ${t.next.title}.` : 'Rest day — the week is done. Recovery is training too.')));
   } else if (t.status === 'starts') {
     root.append(el('div', { class: 'card' }, el('h2', {}, 'Starts soon'),
-      el('p', {}, `The block begins ${t.when}. Week 1: ${t.week.theme}`)));
+      el('p', {}, `The block begins ${t.when}. Week 1: ${t.week.theme}`),
+      el('p', { class: 'muted', style: 'margin-top:6px' },
+        'Nothing to accept — the plan is live. Your first session appears on Today that morning: tap Start session and Vic walks you through it.')));
   } else {
     root.append(el('div', { class: 'card' }, el('h2', {}, 'Block complete'),
       el('p', {}, 'Four weeks done — time to re-measure, re-benchmark (Me tab) and let Vic write the next block.')));
@@ -841,13 +849,33 @@ async function train(root) {
         `${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][s.dow]} — ${s.title} (${s.duration_min} min)`))));
   }
 
-  root.append(el('button', {
-    class: 'btn ghost', onclick: async () => {
-      if (!confirm('Replace the current plan with a freshly generated block?')) return;
-      go('train');
-    },
-  }, 'Plan options'), el('p', { class: 'muted', style: 'margin-top:8px' },
-    'To re-plan, re-measure in Me first — Vic rebuilds from fresh numbers after each block.'));
+  root.append(el('div', { class: 'chips' },
+    el('button', { class: 'chip', onclick: () => monthSheet(p) }, '📅 Full month'),
+    el('button', { class: 'chip', onclick: rebuildSheet }, '🔄 Rebuild block')),
+    el('p', { class: 'muted', style: 'margin-top:8px' },
+      'Each training day’s workout lands on Today by itself. After 4 weeks: re-measure in Me, then rebuild.'));
+}
+
+/* The whole mesocycle at a glance — every week, every session. */
+function monthSheet(p) {
+  sheet(`${p.month_theme}`,
+    el('p', { class: 'muted', style: 'margin-bottom:10px' }, `Starts ${p.start_date} · 4 weeks · week 4 deloads`),
+    ...(p.weeks || []).flatMap(w => [
+      el('p', { style: 'font-weight:700;margin-top:10px' }, `Week ${w.week} — ${w.theme}`),
+      ...(w.sessions || []).map(s => el('p', { class: 'muted', style: 'margin:3px 0 3px 10px' },
+        `${['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'][s.dow]} · ${s.title} (${s.duration_min} min)`)),
+    ]));
+}
+
+/* Rebuild = a deliberate, explained choice — never a bare OS dialog. */
+function rebuildSheet() {
+  const close = sheet('Rebuild this block?',
+    el('p', {}, 'Vic writes a brand-new 4-week block from your latest measurements, benchmarks and weight trend. The current block is replaced; every workout you’ve logged stays.'),
+    el('p', { class: 'muted', style: 'margin-top:8px' },
+      'Best used after re-measuring (Me tab) — fresh numbers, fresh plan. Mid-block rebuilds are fine too if life changed.'),
+    el('div', { class: 'chips', style: 'margin-top:12px' },
+      el('button', { class: 'btn', onclick: () => { close(); startPlanJob(); } }, '🔄 Rebuild now'),
+      el('button', { class: 'chip', onclick: () => close() }, 'Keep current plan')));
 }
 
 function wodCard(week, session, startable) {
