@@ -76,6 +76,7 @@ create table if not exists trainer_daily_metrics (   -- Garmin via Health Connec
   user_id     uuid not null default auth.uid(),
   day         date not null,
   sleep_score int, sleep_minutes int,
+  sleep_hours numeric(4,1),                          -- actual sleep duration (Health Connect)
   resting_hr  int, stress_avg int, body_battery_high int, steps int, pulse_ox int,
   unique (user_id, day)
 );

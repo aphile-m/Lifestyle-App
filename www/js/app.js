@@ -9,13 +9,14 @@ import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, ado
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities, stravaLastImport } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney, completeJourney } from './onboarding.js';
+import { hcSupported, hcConnected, hcConnect, hcSync, hcLastSync } from './health.js';
 import { vicAvatar } from './vic-avatar.js';
 import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 41; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '26 Jul 2026, 12:25 SAST';
+const WEB_VERSION = 42; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '26 Jul 2026, 12:55 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -85,6 +86,7 @@ initOnboarding({
     go(localStorage.getItem('trainer_tab') || 'today');
     autoCloudPush();
     autoStravaSync();
+    autoHealthSync();
     checkNativeUpdate();
     resumeVicIfDangling(); // finish a reply that died with the previous page
   }
@@ -137,6 +139,15 @@ async function autoCloudPush() {
     const total = e.counts ? Object.values(e.counts).reduce((a, b) => a + b, 0) : 0;
     toast(`☁️ ${total ? total + ' backed up · ' : ''}⚠️ ${e.message.slice(0, 180)}`);
   }
+}
+
+/* Health Connect syncs itself on every launch (Android app, once connected). */
+async function autoHealthSync() {
+  if (!hcSupported() || !hcConnected()) return;
+  try {
+    const r = await hcSync(7);
+    if (r?.updated) { toast(`⌚ ${r.updated} day${r.updated === 1 ? '' : 's'} of watch data synced`); trySync(); }
+  } catch {}
 }
 
 /* Strava syncs itself on every launch; quiet unless something new arrived. */
@@ -1343,7 +1354,9 @@ async function me(root) {
         signedIn() ? 'Cloud sync ✓' : 'Set up cloud sync'),
       el('button', { class: 'chip', onclick: stravaSheet },
         stravaConnected() ? 'Strava ✓' : 'Connect Strava'),
-      el('button', { class: 'chip', onclick: metricsSheet }, '⌚ Garmin day log'),
+      el('button', { class: 'chip', onclick: healthSheet },
+        hcConnected() ? '⌚ Health Connect ✓' : '⌚ Health Connect'),
+      el('button', { class: 'chip', onclick: metricsSheet }, '✍️ Garmin day log (manual)'),
       el('button', { class: 'chip', onclick: () => startJourney() }, '🚀 Replay setup journey')),
     el('p', { class: 'muted', style: 'margin-top:10px;font-size:12px' },
       `Web build v${WEB_VERSION} (shipped ${WEB_SHIPPED}) — updates itself when you reopen the app.`)));
@@ -1719,6 +1732,45 @@ function metricsSheet() {
         close(); toast('Day logged. Recover pillar sees it.'); trySync(); goCurrent('me');
       },
     }, 'Save'));
+}
+
+function healthSheet() {
+  const status = el('p', { class: 'muted', style: 'margin-top:10px' },
+    !hcSupported() ? 'Available in the Android app only (install it from Me → the update prompt, or GitHub releases).'
+      : hcConnected() ? `Connected ✓${hcLastSync() ? ` · last sync ${timeAgo(hcLastSync())}` : ''}`
+        : 'Not connected yet.');
+  const close = sheet('Health Connect',
+    el('p', { class: 'muted', style: 'margin-bottom:10px' },
+      'Pulls your watch’s wellness data automatically every launch — steps, sleep duration and resting heart rate. ' +
+      'Garmin Connect must have Health Connect sync enabled: Garmin Connect app → Settings → Health Connect → allow sharing. ' +
+      'Sleep score and Body Battery aren’t shared by Garmin — log those manually if you want them.'),
+    status,
+    el('div', { class: 'chips', style: 'margin-top:10px' },
+      el('button', {
+        class: 'chip', onclick: async e => {
+          if (!hcSupported()) return toast('Open this in the Android app.');
+          e.target.textContent = 'Connecting…';
+          try {
+            await hcConnect();
+            const r = await hcSync(7);
+            status.textContent = `Connected ✓ — ${r?.updated || 0} days pulled`;
+            toast('⌚ Health Connect on.');
+            go('me');
+          } catch (err) { e.target.textContent = 'Connect'; status.textContent = '⚠️ ' + err.message; }
+        },
+      }, hcConnected() ? 'Reconnect' : 'Connect'),
+      el('button', {
+        class: 'chip', onclick: async e => {
+          if (!hcConnected()) return toast('Connect first.');
+          e.target.textContent = 'Syncing…';
+          try {
+            const r = await hcSync(7);
+            toast(`⌚ ${r?.updated || 0} day${r?.updated === 1 ? '' : 's'} updated`);
+            trySync();
+            close(); go('me');
+          } catch (err) { e.target.textContent = 'Sync now'; toast('⚠️ ' + err.message); }
+        },
+      }, 'Sync now')));
 }
 
 function stravaSheet() {

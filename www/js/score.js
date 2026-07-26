@@ -147,8 +147,15 @@ function pillarRecover(checkins, metrics = []) {
     drivers.push(driver('Garmin recovery', `avg ${Math.round(mean(garmin))} of 100`, clamp(Math.round(mean(garmin))),
       'Sleep score and Body Battery respond most to bedtime regularity and easing alcohol/late meals.'));
   }
+  // measured sleep duration (Health Connect) vs the 7–9h consensus range
+  const hours = metrics.map(m => m.sleepHours).filter(v => v != null);
+  const hoursScore = h => h >= 7 && h <= 9 ? 100 : h > 9 ? 85 : h >= 6 ? 80 : h >= 5 ? 55 : 30;
+  if (hours.length) {
+    drivers.push(driver('Sleep duration', `avg ${mean(hours).toFixed(1)}h of 7–9h`, clamp(Math.round(hoursScore(mean(hours)))),
+      'Guard a consistent bedtime — 7–9 hours is where recovery, appetite hormones and training gains live.'));
+  }
   return finishPillar(drivers, parts => {
-    // preserve original maths: checkin scale and Garmin average as two equal parts
+    // checkin scale, Garmin scores and measured sleep hours as equal parts
     const p = [];
     if (checkins.length) {
       const sleep = mean(checkins.map(c => c.sleep ?? 3));
@@ -156,6 +163,7 @@ function pillarRecover(checkins, metrics = []) {
       p.push(((sleep + energy) / 2 - 1) / 4 * 100);
     }
     if (garmin.length) p.push(mean(garmin));
+    if (hours.length) p.push(hoursScore(mean(hours)));
     return p;
   });
 }

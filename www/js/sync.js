@@ -139,8 +139,8 @@ const MAP = {
   },
   metrics: {
     table: 'trainer_daily_metrics', conflict: 'user_id,day', orderBy: 'day',
-    up: r => ({ day: day(r.ts), sleep_score: r.sleepScore ?? null, resting_hr: r.restingHr ?? null, stress_avg: r.stress ?? null, body_battery_high: r.bodyBattery ?? null, steps: r.steps ?? null }),
-    down: t => ({ ts: t.day + 'T12:00:00.000Z', sleepScore: t.sleep_score, restingHr: t.resting_hr, stress: t.stress_avg, bodyBattery: t.body_battery_high, steps: t.steps }),
+    up: r => ({ day: day(r.ts), sleep_score: r.sleepScore ?? null, resting_hr: r.restingHr ?? null, stress_avg: r.stress ?? null, body_battery_high: r.bodyBattery ?? null, steps: r.steps ?? null, sleep_hours: r.sleepHours ?? null }),
+    down: t => ({ ts: t.day + 'T12:00:00.000Z', sleepScore: t.sleep_score, restingHr: t.resting_hr, stress: t.stress_avg, bodyBattery: t.body_battery_high, steps: t.steps, sleepHours: t.sleep_hours != null ? Number(t.sleep_hours) : t.sleep_hours }),
   },
   chat: {
     table: 'trainer_chat', conflict: 'user_id,ts,role',

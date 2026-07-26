@@ -47,6 +47,9 @@ jobs:
           cp android-signing/debug.keystore "$HOME/.android/debug.keystore"
           sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/" android/app/build.gradle
           sed -i -E "s/versionName \"[^\"]*\"/versionName \"${{ github.run_number }}\"/" android/app/build.gradle
+          # Health Connect (capacitor-health plugin) needs minSdk 26
+          sed -i -E "s/minSdkVersion = [0-9]+/minSdkVersion = 26/" android/variables.gradle
+          grep minSdkVersion android/variables.gradle
       - name: Build debug APK
         run: |
           cd android

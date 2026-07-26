@@ -1,9 +1,9 @@
 /* Trainer App service worker — cache-first shell, network-first for everything else */
-const CACHE = 'trainer-v41';
+const CACHE = 'trainer-v42';
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/store.js', 'js/vic.js', 'js/score.js', 'js/ui.js',
-  'js/plan.js', 'js/sync.js', 'js/fuel.js', 'js/strava.js', 'js/onboarding.js', 'js/vic-avatar.js', 'js/exercise-art.js', 'js/vic-sprite.js', 'img/vic-idle.png',
+  'js/plan.js', 'js/sync.js', 'js/fuel.js', 'js/strava.js', 'js/health.js', 'js/onboarding.js', 'js/vic-avatar.js', 'js/exercise-art.js', 'js/vic-sprite.js', 'img/vic-idle.png',
   'icon-192.png', 'icon-512.png',
 ];
 
