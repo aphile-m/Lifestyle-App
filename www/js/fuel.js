@@ -91,6 +91,15 @@ export function downscaleImage(file, maxDim = 1024) {
   });
 }
 
+/* Text-described meals get the same AI nutrition estimate as photos. */
+export async function estimateMealFromText(desc) {
+  const text = await claude(
+    'Estimate the nutrition of this meal as eaten (typical home portion unless stated). ' +
+    'Return ONLY JSON: {"kcal":int,"protein_g":int,"carbs_g":int,"fat_g":int,"confidence":"low|medium|high"}\n\n' +
+    `Meal: ${desc}`, { maxTokens: 300 });
+  return parseJson(text);
+}
+
 export async function estimateMealFromPhoto(base64jpeg) {
   const text = await claude([
     { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: base64jpeg } },

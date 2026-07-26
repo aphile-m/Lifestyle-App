@@ -4,7 +4,27 @@
    Every pillar returns {score, drivers} — the same numbers power the Today
    card (score only) and the Insights screen (drivers, gaps, tips). */
 
-import { logs } from './store.js';
+import { logs, settings } from './store.js';
+
+/* Personal energy & protein targets — transparent, standard sports-science:
+   BMR via Mifflin-St Jeor, activity factor from measured steps + training
+   frequency, intake target = TDEE − 500 kcal (≈0.5 kg/wk, mid of the
+   0.25–0.75 band), protein 1.6 g/kg for muscle retention in a deficit. */
+export function energyTargets(profile, weightKg, { stepsAvg = null, workoutsPerWeek = 0 } = {}) {
+  const { age, sex, heightCm } = profile || {};
+  if (!age || !sex || !heightCm || !weightKg) return null;
+  const bmr = Math.round(10 * weightKg + 6.25 * heightCm - 5 * age + (sex === 'male' ? 5 : -161));
+  let factor = 1.35; // baseline daily living
+  if (stepsAvg != null) factor += stepsAvg >= 8000 ? 0.1 : stepsAvg >= 5000 ? 0.05 : 0;
+  factor += workoutsPerWeek >= 3 ? 0.1 : workoutsPerWeek >= 1 ? 0.05 : 0;
+  const tdee = Math.round(bmr * Math.min(1.6, factor));
+  return {
+    bmr, tdee, factor: Math.min(1.6, factor),
+    target: tdee - 500,                    // sustainable-deficit midpoint
+    band: [tdee - 825, tdee - 275],        // 0.25–0.75 kg/wk equivalents
+    proteinG: Math.round(weightKg * 1.6),
+  };
+}
 
 export const WEIGHTS = {
   move:        { label: 'Move',        weight: 0.25 },
@@ -36,7 +56,7 @@ export async function scoreDetail() {
 
   const detail = {
     move: pillarMove(workouts, metrics),
-    fuel: pillarFuel(foods, checkins, priorCheckins),
+    fuel: pillarFuel(foods, checkins, priorCheckins, { workouts, metrics, weights }),
     recover: pillarRecover(checkins, metrics),
     consistency: pillarConsistency([workouts, foods, checkins, journal]),
     body: pillarBody(weights),
@@ -88,7 +108,7 @@ function pillarMove(workouts, metrics = []) {
    ~2 L/day (≈8 glasses), and alcohol with HARM-REDUCTION credit: absolute
    score follows the UK CMO low-risk guideline (≤14 units/wk), but improving
    on your own 4-week baseline scores well even before you're under it. */
-function pillarFuel(foods, checkins = [], priorCheckins = []) {
+function pillarFuel(foods, checkins = [], priorCheckins = [], ctx = {}) {
   const drivers = [];
   if (foods.length) {
     const daysLogged = new Set(foods.map(f => f.ts.slice(0, 10))).size;
@@ -97,6 +117,42 @@ function pillarFuel(foods, checkins = [], priorCheckins = []) {
       'Self-monitoring is the single strongest predictor of weight-loss success — a photo log takes 10 seconds.'));
     drivers.push(driver('Home-cooked meals', `${Math.round(homeCooked * 100)}% of logged`, clamp(homeCooked * 100),
       'Cook from the cookbook more often — home-cooked meals average far fewer calories than takeaway.'));
+
+    // energy & protein vs YOUR targets, on days logged fully enough to judge
+    // (≥2 meals with kcal data) — needs age/sex/height in the profile
+    const steps = (ctx.metrics || []).map(m => m.steps).filter(v => v != null);
+    const t = energyTargets({ ...settings.profile },
+      (ctx.weights || []).length ? ctx.weights[ctx.weights.length - 1].kg : null,
+      { stepsAvg: steps.length ? mean(steps) : null, workoutsPerWeek: (ctx.workouts || []).length });
+    if (t) {
+      const byDay = {};
+      for (const f of foods) {
+        if (f.kcal == null) continue;
+        (byDay[f.ts.slice(0, 10)] ||= { kcal: 0, protein: 0, meals: 0 });
+        const d = byDay[f.ts.slice(0, 10)];
+        d.kcal += f.kcal; d.protein += f.protein || 0; d.meals++;
+      }
+      const full = Object.values(byDay).filter(d => d.meals >= 2);
+      if (full.length) {
+        const avgK = mean(full.map(d => d.kcal));
+        const dev = (avgK - t.target) / t.target;
+        const eScore = dev >= -0.12 && dev <= 0.12 ? 100
+          : dev < -0.25 ? 60
+          : dev < -0.12 ? 85
+          : dev <= 0.25 ? 75
+          : clamp(Math.round(75 - (dev - 0.25) * 150));
+        drivers.push(driver('Energy intake', `avg ${Math.round(avgK)} of ~${t.target} kcal target`, eScore,
+          dev < -0.25
+            ? `Eating well under target (${t.target} kcal) costs muscle and rebounds — a sustainable deficit beats a crash.`
+            : `Target ≈${t.target} kcal/day (your TDEE ≈${t.tdee} − 500). Log every meal on eating days so this number is honest.`));
+        const avgP = mean(full.map(d => d.protein));
+        if (avgP > 0) {
+          drivers.push(driver('Protein', `avg ${Math.round(avgP)}g of ${t.proteinG}g (1.6 g/kg)`,
+            clamp(Math.round(avgP / t.proteinG * 100)),
+            'Protein at 1.6 g/kg protects muscle while losing fat — anchor each meal on a protein source.'));
+        }
+      }
+    }
   }
   const water = checkins.map(c => c.water).filter(v => v != null);
   if (water.length) {

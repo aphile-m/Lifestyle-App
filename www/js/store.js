@@ -28,6 +28,10 @@ export function defaultProfile() {
     modalities: 'street running, bodyweight workouts',
     sessionMinutes: 60, // includes warm-up and cool-down (SPEC §2.2)
     baselineStart: null, // ISO date the calibration fortnight began
+    // biology for energy/protein targets (Mifflin-St Jeor needs all three)
+    age: null,
+    sex: null, // 'male' | 'female'
+    heightCm: null,
   };
 }
 

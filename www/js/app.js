@@ -2,11 +2,11 @@
 
 import { $, el, esc, scoreRing, sheet, toast } from './ui.js';
 import { settings, logs, defaultProfile } from './store.js';
-import { weeklyScore, scoreDetail, trendWeight, WEIGHTS } from './score.js';
+import { weeklyScore, scoreDetail, trendWeight, energyTargets, WEIGHTS } from './score.js';
 import { askVic, vicBriefing } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
 import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
-import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
+import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto, estimateMealFromText } from './fuel.js';
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities, stravaLastImport } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney, completeJourney } from './onboarding.js';
 import { hcSupported, hcConnected, hcConnect, hcSync, hcLastSync } from './health.js';
@@ -15,8 +15,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 42; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '26 Jul 2026, 12:55 SAST';
+const WEB_VERSION = 43; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '26 Jul 2026, 13:20 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -1173,6 +1173,52 @@ async function fuel(root) {
   }
   root.append(planCard);
 
+  // Logged meals — what you ate, what the AI estimated, and how it compares
+  // to YOUR calorie target (Mifflin-St Jeor from profile + activity)
+  const [foods3, weightsAll, metrics7, workouts7] = await Promise.all([
+    logs.recent('foods', 3), logs.recent('weights', 28), logs.recent('metrics', 7), logs.recent('workouts', 7),
+  ]);
+  const stepsArr = metrics7.map(m => m.steps).filter(v => v != null);
+  const targets = energyTargets(settings.profile,
+    weightsAll.length ? weightsAll[weightsAll.length - 1].kg : null,
+    { stepsAvg: stepsArr.length ? stepsArr.reduce((a, b) => a + b, 0) / stepsArr.length : null,
+      workoutsPerWeek: workouts7.length });
+  const mealsCard = el('div', { class: 'card' }, el('h2', {}, 'Logged meals'),
+    el('div', { class: 'chips', style: 'margin-bottom:8px' },
+      el('button', { class: 'chip on', onclick: photoLogSheet }, '📷 Snap a meal'),
+      el('button', { class: 'chip', onclick: () => logMealSheet() }, '📝 Describe a meal')));
+  if (!foods3.length) {
+    mealsCard.append(el('p', { class: 'muted' },
+      'Nothing logged in the last 3 days. Photos and descriptions both get AI nutrition estimates — logging is the single strongest predictor of weight-loss success.'));
+  } else {
+    const byDay = {};
+    for (const f of foods3) (byDay[f.ts.slice(0, 10)] ||= []).push(f);
+    for (const day of Object.keys(byDay).sort().reverse()) {
+      const meals = byDay[day];
+      const kcal = meals.reduce((a, f) => a + (f.kcal || 0), 0);
+      const prot = meals.reduce((a, f) => a + (f.protein || 0), 0);
+      const label = day === todayIso() ? 'Today'
+        : day === new Date(Date.now() - 86400e3).toISOString().slice(0, 10) ? 'Yesterday'
+          : ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(day + 'T12:00:00').getDay()];
+      mealsCard.append(el('div', { class: 'row', style: 'justify-content:space-between;margin-top:10px' },
+        el('b', {}, label),
+        el('span', { class: 'muted', style: 'font-size:13px' },
+          (kcal ? `${kcal} kcal` : 'no estimates') +
+          (targets && kcal ? ` of ~${targets.target}` : '') +
+          (prot ? ` · ${Math.round(prot)}g protein` : ''))));
+      for (const f of meals) {
+        mealsCard.append(el('p', { class: 'muted', style: 'margin:2px 0 2px 10px;font-size:13.5px' },
+          `${f.source === 'photo' ? '📷' : f.source === 'cookbook' ? '🍲' : '📝'} ${f.desc}` +
+          (f.kcal ? ` · ${f.kcal} kcal (P${f.protein ?? '–'}/C${f.carbs ?? '–'}/F${f.fat ?? '–'})` : ' · no estimate')));
+      }
+    }
+  }
+  mealsCard.append(el('p', { class: 'muted', style: 'font-size:12px;margin-top:10px' },
+    targets
+      ? `Your targets: ~${targets.target} kcal/day (TDEE ≈${targets.tdee} − 500 for ${esc(settings.profile.targetRate)}) · protein ${targets.proteinG}g (1.6 g/kg). The Fuel pillar scores against these.`
+      : 'Add age, sex and height in Me → Edit profile to unlock your personal calorie & protein targets — the Fuel pillar scores against them.'));
+  root.append(mealsCard);
+
   // Cookbook recipes (shared_recipes)
   const recCard = el('div', { class: 'card' }, el('h2', {}, 'My cookbook recipes'));
   if (!signedIn()) {
@@ -1263,19 +1309,7 @@ function photoLogSheet() {
     status.textContent = 'Estimating…';
     try {
       const est = await estimateMealFromPhoto(await downscaleImage(input.files[0]));
-      close();
-      const desc = el('input', { value: est.desc || '' });
-      const kcal = el('input', { type: 'number', value: est.kcal ?? '' });
-      const close2 = sheet('Confirm meal',
-        el('div', { class: 'field' }, el('label', {}, 'What is it?'), desc),
-        el('div', { class: 'field' }, el('label', {}, `kcal (protein ${est.protein_g}g · carbs ${est.carbs_g}g · fat ${est.fat_g}g · confidence ${est.confidence})`), kcal),
-        el('button', {
-          class: 'btn', onclick: async () => {
-            await logs.add('foods', { desc: desc.value.trim() || 'Meal (photo)', source: 'photo',
-              kcal: parseInt(kcal.value) || null, protein: est.protein_g, carbs: est.carbs_g, fat: est.fat_g });
-            close2(); toast('Meal logged.'); trySync(); go('fuel');
-          },
-        }, 'Log it'));
+      closeThen(close, () => confirmMealSheet(est.desc || 'Meal (photo)', 'photo', est));
     } catch (e) { status.textContent = '⚠️ ' + e.message; }
   });
 }
@@ -1381,21 +1415,66 @@ function logWeightSheet() {
 }
 
 function logMealSheet() {
-  const input = el('input', { placeholder: 'What did you eat?' });
+  const input = el('input', { placeholder: 'e.g. chicken stir-fry with rice, large plate' });
+  const status = el('p', { class: 'muted', style: 'margin-top:8px;font-size:13px' },
+    'The AI estimates calories and macros from your description — you confirm before it counts.');
   let source = 'manual';
   const close = sheet('Log a meal',
     el('div', { class: 'field' }, input),
-    el('div', { class: 'chips', style: 'margin-bottom:12px' },
+    el('div', { class: 'chips', style: 'margin-bottom:8px' },
       el('button', { class: 'chip on', onclick: e => { source = source === 'cookbook' ? 'manual' : 'cookbook'; e.target.classList.toggle('on'); } },
         'Home-cooked (from my cookbook)')),
+    status,
+    el('div', { class: 'chips', style: 'margin-top:10px' },
+      el('button', {
+        class: 'btn', onclick: async e => {
+          const desc = input.value.trim();
+          if (!desc) return toast('Say what it was.');
+          if (!settings.apiKey) { close(); apiKeySheet(); return; }
+          e.target.disabled = true; status.textContent = 'Estimating nutrition…';
+          try {
+            const est = await estimateMealFromText(desc);
+            closeThen(close, () => confirmMealSheet(desc, source, est));
+          } catch (err) {
+            e.target.disabled = false;
+            status.textContent = '⚠️ ' + err.message;
+          }
+        },
+      }, 'Estimate & log'),
+      el('button', {
+        class: 'chip', onclick: async () => {
+          if (!input.value.trim()) return toast('Say what it was.');
+          await logs.add('foods', { desc: input.value.trim(), source });
+          close(); toast('Meal logged (no estimate).'); trySync(); goCurrent('today');
+        },
+      }, 'Log without estimate')));
+  input.focus();
+}
+
+/* Close a history-aware sheet, then open the next one AFTER the back-pop has
+   landed — opening immediately would get swallowed by the pending popstate. */
+function closeThen(close, fn) {
+  window.addEventListener('popstate', () => setTimeout(fn, 0), { once: true });
+  close();
+}
+
+/* Shared confirm step for text- and photo-estimated meals. */
+function confirmMealSheet(desc, source, est) {
+  const descIn = el('input', { value: desc || est.desc || '' });
+  const kcal = el('input', { type: 'number', value: est.kcal ?? '' });
+  const close = sheet('Confirm meal',
+    el('div', { class: 'field' }, el('label', {}, 'What is it?'), descIn),
+    el('div', { class: 'field' },
+      el('label', {}, `kcal (protein ${est.protein_g}g · carbs ${est.carbs_g}g · fat ${est.fat_g}g · confidence ${est.confidence})`), kcal),
     el('button', {
       class: 'btn', onclick: async () => {
-        if (!input.value.trim()) return toast('Say what it was.');
-        await logs.add('foods', { desc: input.value.trim(), source });
-        close(); toast('Meal logged.'); trySync(); goCurrent('today');
+        await logs.add('foods', {
+          desc: descIn.value.trim() || 'Meal', source,
+          kcal: parseInt(kcal.value) || null, protein: est.protein_g, carbs: est.carbs_g, fat: est.fat_g,
+        });
+        close(); toast('Meal logged. Fuel pillar sees it.'); trySync(); goCurrent('fuel');
       },
-    }, 'Save'));
-  input.focus();
+    }, 'Log it'));
 }
 
 function logWorkoutSheet() {
@@ -1668,10 +1747,14 @@ function cloudSheet() {
       'Backs up your logs to your own Supabase project and syncs web ↔ Android. Fill these once — the values live only on this device.'),
     el('div', { class: 'field' }, el('label', {}, 'Project URL'), url),
     el('div', { class: 'field' }, el('label', {}, 'Publishable (anon) key'), key),
-    // a real <form> lets Android's password manager offer save + autofill
-    el('form', { onsubmit: e => e.preventDefault() },
+    // a real <form> with a submit path gives Android's password manager its
+    // strongest save/autofill signal (still best-effort inside a WebView)
+    el('form', {
+      onsubmit: e => { e.preventDefault(); doAuth(signIn)(); },
+    },
       el('div', { class: 'field' }, el('label', {}, 'Email'), email),
-      el('div', { class: 'field' }, el('label', {}, 'Password'), pass)),
+      el('div', { class: 'field' }, el('label', {}, 'Password'), pass),
+      el('input', { type: 'submit', hidden: true })),
     el('div', { class: 'chips' },
       el('button', { class: 'chip', onclick: doAuth(signUp) }, 'Create account'),
       el('button', { class: 'chip', onclick: doAuth(signIn) }, 'Sign in'),
@@ -1824,10 +1907,21 @@ function profileSheet() {
   const injuries = el('input', { value: p.injuries, placeholder: 'e.g. left knee — no deep squats' });
   const equipment = el('input', { value: p.equipment });
   const minutes = el('input', { type: 'number', value: p.sessionMinutes, min: 15, max: 180, step: 5 });
+  const age = el('input', { type: 'number', value: p.age ?? '', min: 16, max: 100, placeholder: 'e.g. 34' });
+  const height = el('input', { type: 'number', value: p.heightCm ?? '', min: 120, max: 230, placeholder: 'e.g. 178' });
+  const sex = el('select', {},
+    el('option', { value: '', selected: !p.sex }, '— pick —'),
+    ...['male', 'female'].map(s => el('option', { value: s, selected: p.sex === s }, s[0].toUpperCase() + s.slice(1))));
   const tone = el('select', {},
     ...['gentle', 'balanced', 'direct'].map(t =>
       el('option', { value: t, selected: p.tone === t }, t[0].toUpperCase() + t.slice(1))));
   const close = sheet('Profile',
+    el('p', { class: 'muted', style: 'margin-bottom:10px;font-size:13px' },
+      'Age, sex and height power your personal calorie & protein targets (Mifflin-St Jeor) — the Fuel pillar can’t be scientific without them.'),
+    el('div', { class: 'row', style: 'gap:8px' },
+      el('div', { class: 'field grow' }, el('label', {}, 'Age'), age),
+      el('div', { class: 'field grow' }, el('label', {}, 'Sex'), sex),
+      el('div', { class: 'field grow' }, el('label', {}, 'Height (cm)'), height)),
     el('div', { class: 'field' }, el('label', {}, 'Injuries / limits (Vic works around these)'), injuries),
     el('div', { class: 'field' }, el('label', {}, 'Equipment (drives every plan)'), equipment),
     el('div', { class: 'field' }, el('label', {}, 'Session budget (min, incl. warm-up & cool-down)'), minutes),
@@ -1838,9 +1932,11 @@ function profileSheet() {
           profile: {
             ...p, injuries: injuries.value, equipment: equipment.value,
             sessionMinutes: parseInt(minutes.value) || 60, tone: tone.value,
+            age: parseInt(age.value) || null, heightCm: parseInt(height.value) || null,
+            sex: sex.value || null,
           },
         });
-        close(); toast('Saved. Vic adapts.'); pushProfile(); go('me');
+        close(); toast('Saved. Vic adapts.'); pushProfile(); goCurrent('me');
       },
     }, 'Save'));
 }
