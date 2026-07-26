@@ -14,7 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 33; // bump together with CACHE in sw.js
+const WEB_VERSION = 34; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -85,6 +85,7 @@ initOnboarding({
     autoCloudPush();
     autoStravaSync();
     checkNativeUpdate();
+    resumeVicIfDangling(); // finish a reply that died with the previous page
   }
 })();
 
@@ -96,8 +97,10 @@ const loadedAt = Date.now();
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState !== 'visible') return;
   const stale = Date.now() - loadedAt > 30 * 60e3;
-  const busy = history.state?.player || document.querySelector('#overlay-root .overlay') || journeyActive();
+  const busy = vicThinking || planJob || mealJob || history.state?.player ||
+    document.querySelector('#overlay-root .overlay') || journeyActive();
   if (stale && !busy) location.reload();
+  else resumeVicIfDangling(); // heal a reply the OS killed while backgrounded
 });
 
 /* Android shell: web updates arrive live (the shell loads the hosted app), but
@@ -634,6 +637,10 @@ async function sendToVic(text, extraContext = '') {
   if (vicThinking) { toast('Vic is mid-reply — give him a second.'); return; }
   chatHistory.push({ role: 'user', content: text });
   await logs.add('chat', { role: 'user', text });
+  await requestVicReply(extraContext);
+}
+
+async function requestVicReply(extraContext = '') {
   vicThinking = true;
   onVicUpdate?.();
   try {
@@ -651,6 +658,21 @@ async function sendToVic(text, extraContext = '') {
     if (e.message === 'NO_KEY') { apiKeySheet(); return; }
     toast('⚠️ Vic: ' + e.message);
   }
+}
+
+/* If a reply died mid-flight (page reloaded, or Android killed the webview in
+   the background), the last stored message is a lone user question. Re-ask Vic
+   automatically instead of making the user start again. */
+async function resumeVicIfDangling() {
+  if (vicThinking || !settings.apiKey) return;
+  const stored = await logs.recent('chat', 1);
+  const last = stored[stored.length - 1];
+  if (!last || last.role !== 'user') return;
+  if (Date.now() - Date.parse(last.ts) > 3600e3) return; // an hour old — let it lie
+  if (!chatHistory.length) {
+    chatHistory = stored.map(m => ({ role: m.role, content: m.text, actions: m.actions }));
+  }
+  await requestVicReply();
 }
 
 /* ---------------- Coach (Vic) ---------------- */
