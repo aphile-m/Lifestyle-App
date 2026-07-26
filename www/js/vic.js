@@ -124,10 +124,18 @@ async function buildContext() {
   return lines.join('\n');
 }
 
-export async function askVic(history) {
+/* One-shot Vic commentary — full persona + live data, no chat history.
+   Used by the Insights page so the breakdown arrives in Vic's voice. */
+export async function vicBriefing(ask, extraContext = '') {
+  if (!settings.apiKey) throw new Error('NO_KEY');
+  const context = (await buildContext()) + (extraContext ? '\n' + extraContext : '');
+  return claude(ask, { system: personaPrompt(settings.profile, context), maxTokens: 600 });
+}
+
+export async function askVic(history, extraContext = '') {
   const apiKey = settings.apiKey;
   if (!apiKey) throw new Error('NO_KEY');
-  const context = await buildContext();
+  const context = (await buildContext()) + (extraContext ? '\n' + extraContext : '');
   let res;
   try {
     res = await fetch('https://api.anthropic.com/v1/messages', {

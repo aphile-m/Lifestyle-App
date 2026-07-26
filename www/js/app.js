@@ -3,7 +3,7 @@
 import { $, el, esc, scoreRing, sheet, toast } from './ui.js';
 import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, scoreDetail, trendWeight, WEIGHTS } from './score.js';
-import { askVic } from './vic.js';
+import { askVic, vicBriefing } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
 import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto } from './fuel.js';
@@ -14,7 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 26; // bump together with CACHE in sw.js
+const WEB_VERSION = 27; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -314,7 +314,11 @@ function driverRow(d) {
 async function insightsScreen() {
   history.pushState({ tab: localStorage.getItem('trainer_tab') || 'today', player: true }, '');
   const root = $('#screen');
-  root.replaceChildren(el('h1', { class: 'h-page' }, 'Score insights'));
+  root.replaceChildren(el('div', { class: 'hey-row' },
+    el('div', {},
+      el('h1', { class: 'hey' }, 'Score insights'),
+      el('p', { class: 'hey-sub' }, 'Vic’s read on your numbers')),
+    vicSprite(84)));
 
   const { aggregate, pillars, detail } = await scoreDetail();
 
@@ -325,6 +329,39 @@ async function insightsScreen() {
   } catch {}
   history_ = history_.filter(r => r.aggregate != null).slice(-12);
   const baselineRow = history_.find(r => r.is_baseline) || null;
+
+  // quick wins: biggest score movers first (pillar weight × gap to 100)
+  const wins = [];
+  for (const [key, d] of Object.entries(detail)) {
+    for (const dr of d.drivers) {
+      if (dr.score == null || dr.score >= 85) continue;
+      wins.push({ pillar: WEIGHTS[key].label, impact: WEIGHTS[key].weight * (100 - dr.score), ...dr });
+    }
+  }
+  wins.sort((a, b) => b.impact - a.impact);
+
+  // everything this page shows, as plain lines — Vic's briefing and the Q&A
+  // below both cite from this, so he talks about the same numbers you see
+  const insightsCtx = ['SCORE BREAKDOWN (drivers behind each pillar this week):']
+    .concat(Object.entries(WEIGHTS).map(([k, w]) => {
+      const d = detail[k];
+      return `${w.label} (${Math.round(w.weight * 100)}% weight): ${d.score ?? 'no data'}` +
+        (d.drivers.length ? ' — ' + d.drivers.map(dr => `${dr.label}: ${dr.value} (sub-score ${dr.score ?? 'n/a'})`).join('; ') : '');
+    }))
+    .concat(baselineRow ? [`Baseline score ${baselineRow.aggregate} (locked ${baselineRow.week_start}); current ${aggregate}.`] : [])
+    .concat(history_.length > 1 ? ['Weekly score history: ' + history_.map(r => `${r.week_start}=${r.aggregate}`).join(', ')] : [])
+    .join('\n');
+
+  // ---- Vic delivers the breakdown ----
+  const brief = el('div', { class: 'bubble vic', style: 'max-width:100%;margin-bottom:14px' },
+    el('span', { class: 'tdots' }, el('i'), el('i'), el('i')));
+  root.append(brief);
+  vicBriefing(
+    'Deliver a short spoken breakdown of my Lifestyle Score this week (under 130 words): what is carrying it, ' +
+    'what is dragging it, and the ONE change that moves it most this week. Ground every claim in the SCORE BREAKDOWN numbers.',
+    insightsCtx)
+    .then(text => { brief.textContent = text; })
+    .catch(() => { brief.textContent = fallbackBriefing(aggregate, baselineRow, wins); });
 
   // ---- headline: where you are, vs your locked starting point ----
   const delta = baselineRow && aggregate != null ? aggregate - baselineRow.aggregate : null;
@@ -349,15 +386,7 @@ async function insightsScreen() {
       : el('p', { class: 'muted' },
           'The trend appears once two weekly scores are on record — keep logging, this fills in by itself.')));
 
-  // ---- quick wins: biggest score movers first (pillar weight × gap) ----
-  const wins = [];
-  for (const [key, d] of Object.entries(detail)) {
-    for (const dr of d.drivers) {
-      if (dr.score == null || dr.score >= 85) continue;
-      wins.push({ pillar: WEIGHTS[key].label, impact: WEIGHTS[key].weight * (100 - dr.score), ...dr });
-    }
-  }
-  wins.sort((a, b) => b.impact - a.impact);
+  // ---- quick wins card ----
   if (wins.length) {
     root.append(el('div', { class: 'card' },
       el('h2', {}, 'Biggest wins available'),
@@ -381,14 +410,54 @@ async function insightsScreen() {
         : el('p', { class: 'muted' }, noDataHint(key))));
   }
 
-  // ---- hand off to Vic ----
-  root.append(el('button', {
-    class: 'btn', style: 'width:100%', onclick: () => {
-      coachPrefill = 'Break down my Lifestyle Score for me — what single change moves it most this week?';
-      go('coach');
-    },
-  }, '💬 Ask Vic to break it down'));
+  // ---- ask Vic about it, right here (turns also land in the Vic tab) ----
+  const qa = el('div', { style: 'display:flex;flex-direction:column;gap:10px' });
+  const input = el('input', { placeholder: 'Ask Vic about your score…', enterkeyhint: 'send' });
+  const send = async () => {
+    const text = input.value.trim();
+    if (!text) return;
+    if (!settings.apiKey) { apiKeySheet(); return; }
+    input.value = '';
+    qa.append(el('div', { class: 'bubble me' }, text));
+    chatHistory.push({ role: 'user', content: text });
+    await logs.add('chat', { role: 'user', text });
+    const think = el('div', { class: 'bubble vic think-row' },
+      el('span', { class: 'tdots' }, el('i'), el('i'), el('i')));
+    qa.append(think);
+    think.scrollIntoView({ block: 'end' });
+    try {
+      const reply = await askVic(chatHistory.slice(-20), insightsCtx);
+      think.remove();
+      const b = el('div', { class: 'bubble vic' }, reply);
+      qa.append(b);
+      b.scrollIntoView({ block: 'end' });
+      chatHistory.push({ role: 'assistant', content: reply });
+      await logs.add('chat', { role: 'assistant', text: reply });
+    } catch (e) {
+      think.remove();
+      qa.append(el('div', { class: 'bubble vic' }, '⚠️ ' + e.message));
+    }
+  };
+  input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
+  root.append(el('div', { class: 'card' },
+    el('h2', {}, 'Ask Vic about it'),
+    qa,
+    el('div', { class: 'chat-input inline' }, input, el('button', { class: 'btn', onclick: send }, 'Send'))));
   window.scrollTo(0, 0);
+}
+
+/* Vic's voice without an API key: composed from the same wins the page shows. */
+function fallbackBriefing(aggregate, baselineRow, wins) {
+  const bits = [];
+  bits.push(aggregate === null
+    ? 'Not enough data for a score yet — log a few normal days and I’ll have numbers worth talking about.'
+    : `You’re at ${aggregate} this week${baselineRow
+        ? ` — ${aggregate - baselineRow.aggregate >= 0 ? 'up' : 'down'} ${Math.abs(aggregate - baselineRow.aggregate)} on your baseline of ${baselineRow.aggregate}`
+        : ''}.`);
+  if (wins[0]) bits.push(`Biggest lever on the board: ${wins[0].label.toLowerCase()} (${wins[0].value}). ${wins[0].tip}`);
+  if (wins[1]) bits.push(`After that, ${wins[1].label.toLowerCase()} — ${wins[1].value}.`);
+  bits.push('No excuses, one lever at a time. (Add your API key in Me → Settings and I’ll talk you through it properly.)');
+  return bits.join(' ');
 }
 
 function noDataHint(key) {
@@ -908,22 +977,46 @@ async function me(root) {
     el('button', { class: 'btn ghost', style: 'margin-top:10px', onclick: logWeightSheet }, 'Log weight')));
 
   // Measurements & benchmarks (SPEC §3.4: tape 4-weekly, benchmarks 8-weekly)
+  // One row per metric: what's logged (value, bold) vs what's outstanding (chip).
   const measDue = !meas || daysSince(meas) >= 28;
   const benchDue = !bench || daysSince(bench) >= 56;
+  const statusLine = (row, due, cadence) => !row
+    ? 'Never logged — due now.'
+    : due ? `Last done ${daysSince(row)}d ago — due now.`
+      : `Last done ${daysSince(row)}d ago · next in ${cadence - daysSince(row)}d.`;
+  const metricRow = (label, val, howKey = null) => el('div', {
+    class: 'row', style: 'justify-content:space-between;gap:8px;padding:8px 0;border-bottom:1px solid var(--line)',
+  },
+    el('span', { style: 'font-size:14px' }, label,
+      howKey ? el('button', { class: 'howto', onclick: () => benchHowToSheet(howKey) }, 'how?') : null),
+    val != null
+      ? el('span', { style: 'font-weight:700;font-variant-numeric:tabular-nums' }, val)
+      : el('span', { class: 'chip out' }, 'outstanding'));
+
   root.append(el('div', { class: 'card' },
-    el('h2', {}, 'Measurements & benchmarks'),
-    meas
-      ? el('p', {}, `Tape: waist ${meas.waist ?? '–'} · hips ${meas.hips ?? '–'} · chest ${meas.chest ?? '–'} cm (${daysSince(meas)}d ago)`)
-      : el('p', { class: 'muted' }, 'No tape measurements yet — this gates your first plan.'),
-    bench
-      ? el('p', {}, `Benchmarks: ${bench.pushups ?? '–'} push-ups · plank ${bench.plankSec ?? '–'}s · 1.6 km ${bench.runSec ? fmtMinSec(bench.runSec) : '–'} (${daysSince(bench)}d ago)`)
-      : el('p', { class: 'muted' }, 'No fitness/strength benchmarks yet.'),
-    (measDue || benchDue) ? el('p', { class: 'did-you-know' },
-      measDue && benchDue ? 'Measuring session due — tape and benchmarks.' :
-      measDue ? 'Tape measurements due (4-weekly).' : 'Benchmarks due (8-weekly).') : null,
-    el('div', { class: 'chips', style: 'margin-top:10px' },
-      el('button', { class: 'chip', onclick: measurementSheet }, '📏 Log tape measurements'),
-      el('button', { class: 'chip', onclick: benchmarkSheet }, '⏱ Log benchmarks'))));
+    el('h2', {}, 'Tape measurements — every 4 weeks'),
+    el('p', { class: measDue ? 'did-you-know' : 'muted', style: 'font-size:13px;margin-bottom:4px' },
+      statusLine(meas, measDue, 28) + (!meas ? ' Your first plan waits on these.' : '')),
+    metricRow('Waist', meas?.waist != null ? `${meas.waist} cm` : null),
+    metricRow('Hips', meas?.hips != null ? `${meas.hips} cm` : null),
+    metricRow('Chest', meas?.chest != null ? `${meas.chest} cm` : null),
+    metricRow('Upper arm', meas?.arm != null ? `${meas.arm} cm` : null),
+    metricRow('Thigh', meas?.thigh != null ? `${meas.thigh} cm` : null),
+    el('button', { class: 'btn ghost', style: 'margin-top:12px', onclick: measurementSheet }, '📏 Log tape measurements')));
+
+  root.append(el('div', { class: 'card' },
+    el('h2', {}, 'Benchmarks — every 8 weeks'),
+    el('p', { class: benchDue ? 'did-you-know' : 'muted', style: 'font-size:13px;margin-bottom:4px' },
+      statusLine(bench, benchDue, 56)),
+    metricRow('Resting heart rate', bench?.restingHr != null ? `${bench.restingHr} bpm` : null, 'hr'),
+    metricRow('1.6 km run', bench?.runSec ? fmtMinSec(bench.runSec) : null, 'run'),
+    metricRow('Push-ups (max)', bench?.pushups != null ? `${bench.pushups} reps` : null, 'pushups'),
+    metricRow('Plank hold', bench?.plankSec != null ? `${bench.plankSec} s` : null, 'plank'),
+    metricRow('Goblet squat',
+      bench?.squatReps != null ? `${bench.squatReps} reps${bench.squatKg ? ` @ ${bench.squatKg} kg` : ''}` : null, 'squat'),
+    el('p', { class: 'muted', style: 'font-size:12px;margin-top:8px' },
+      'Tap “how?” on any test for step-by-step instructions with an illustration.'),
+    el('button', { class: 'btn ghost', style: 'margin-top:8px', onclick: benchmarkSheet }, '⏱ Log benchmarks')));
 
   const p = settings.profile;
   root.append(el('div', { class: 'card' },
@@ -1049,6 +1142,77 @@ function benchmarkSheet() {
         close(); toast('Benchmarks saved.'); trySync(); go('me');
       },
     }, 'Save benchmarks'));
+}
+
+/* How to perform each benchmark test — illustrated, beginner-proof (SPEC §3.4).
+   The illustration reuses the pixel exercise sprites from the session player. */
+const BENCH_GUIDES = {
+  hr: {
+    title: 'Resting heart rate', art: 'resting',
+    why: 'Your recovery baseline. It falls as your engine gets fitter — one of the clearest long-term fitness signals there is.',
+    steps: [
+      'Measure in the morning, still lying in bed, before coffee or standing up.',
+      'Easiest: wear your Vivoactive 4 overnight — Garmin Connect shows resting HR under Health Stats → Heart Rate. Use the 7-day average.',
+      'No watch overnight? Sit quietly for 5 minutes, then count your pulse at your wrist for 60 seconds.',
+    ],
+    record: 'Enter the number in bpm (e.g. 62). Same method every re-test.',
+  },
+  run: {
+    title: '1.6 km timed run', art: 'run',
+    why: 'Your aerobic engine in one number. Re-tested on the same route, it shows cardio fitness improving even before weight moves.',
+    steps: [
+      'Pick a flat, repeatable 1.6 km route — or use the treadmill.',
+      'Warm up: 5 minutes brisk walking plus a few leg swings.',
+      'Start the timer on your watch and run the distance at the hardest pace you can hold the whole way — it should feel like an 8/10 effort.',
+      'Walk 5 minutes to cool down.',
+    ],
+    record: 'Enter minutes and seconds. Same route or treadmill every re-test — that’s what makes it comparable.',
+  },
+  pushups: {
+    title: 'Push-ups — max set', art: 'push-up',
+    why: 'Upper-body pushing strength relative to your own body weight.',
+    steps: [
+      'Hands on the floor slightly wider than your shoulders, arms straight.',
+      'Body in one straight line from ankles to head — squeeze your glutes so your hips don’t sag.',
+      'Lower until your chest is a fist-height off the floor, then press back up until your arms are straight. That’s one rep.',
+      'Keep a steady rhythm. The set ends when you can’t do another clean rep — hips sagging or half-depth reps don’t count.',
+      'Full push-ups too much today? Do them on your knees — just use the same version every re-test.',
+    ],
+    record: 'Enter the number of clean reps in one unbroken set.',
+  },
+  plank: {
+    title: 'Plank hold', art: 'plank',
+    why: 'Core endurance — the base that protects your back in every other lift and run.',
+    steps: [
+      'Forearms on the floor, elbows directly under your shoulders, feet together.',
+      'Lift your hips so your body forms one straight line — squeeze glutes, tuck your chin, breathe normally.',
+      'Start the timer when you’re set. Stop it the moment your hips sag or lift out of line.',
+    ],
+    record: 'Enter the hold in seconds.',
+  },
+  squat: {
+    title: 'Goblet squat — max reps', art: 'goblet squat',
+    why: 'Leg strength and mobility in one number, using kit you have.',
+    steps: [
+      'Hold ONE dumbbell vertically against your chest, both hands cupping the top end — like holding a big goblet. Elbows point down.',
+      'Feet shoulder-width apart, toes turned slightly out.',
+      'Sit your hips down and back between your knees — chest stays up, heels stay on the floor. Go until your elbows lightly touch your thighs, or as deep as feels controlled.',
+      'Drive up through your heels back to standing. That’s one rep.',
+      'Weight: pick a dumbbell you reckon you could squat 10–15 times.',
+      'Do as many clean reps as you can. Stop when you slow to a grind or your heels/chest give way.',
+    ],
+    record: 'Enter the reps AND the dumbbell weight — both together are the benchmark.',
+  },
+};
+
+function benchHowToSheet(key) {
+  const g = BENCH_GUIDES[key];
+  sheet(g.title,
+    el('div', { style: 'display:flex;justify-content:center;margin:6px 0 10px' }, exerciseAnim(g.art, 6)),
+    el('p', { class: 'muted', style: 'margin-bottom:12px' }, g.why),
+    el('ol', { style: 'padding-left:20px;display:flex;flex-direction:column;gap:8px;font-size:14px' },
+      ...g.steps.map(s => el('li', {}, s))),
+    el('p', { class: 'did-you-know', style: 'margin-top:12px' }, '✍️ ' + g.record));
 }
 
 function apiKeySheet() {

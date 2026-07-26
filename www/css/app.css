@@ -97,6 +97,15 @@ body {
 }
 .chat-input input:focus { outline: 2px solid var(--accent); }
 .chat-input input { border-radius: 999px; }
+/* inline variant: embedded in a card (Score insights Q&A) instead of fixed */
+.chat-input.inline { position: static; padding: 0; margin-top: 12px; }
+
+/* Me — measurement/benchmark status rows */
+.chip.out { border: 1px solid var(--accent); color: var(--accent); background: none; font-size: 12px; padding: 4px 10px; }
+.howto {
+  background: none; border: 1px solid var(--line); color: var(--ink-dim); border-radius: 999px;
+  font: inherit; font-size: 11px; padding: 2px 9px; margin-left: 8px; cursor: pointer;
+}
 
 /* --- forms / settings --- */
 .field { margin-bottom: 14px; }
