@@ -2,7 +2,7 @@
 
 import { $, el, esc, scoreRing, sheet, toast } from './ui.js';
 import { settings, logs, defaultProfile } from './store.js';
-import { weeklyScore, trendWeight, WEIGHTS } from './score.js';
+import { weeklyScore, scoreDetail, trendWeight, WEIGHTS } from './score.js';
 import { askVic } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
 import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
@@ -14,10 +14,11 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 25; // bump together with CACHE in sw.js
+const WEB_VERSION = 26; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
+let coachPrefill = null; // question handed to the coach screen by other screens
 
 function go(tab, fromPop = false) {
   if (journeyActive()) { renderJourney(); return; } // sheets saved mid-journey refresh the journey
@@ -198,7 +199,9 @@ async function today(root) {
     aggregate === null
       ? el('p', { class: 'muted', style: 'margin-top:10px' },
           'Calibration in progress — log normally for two weeks to set your honest baseline. Vic explains why in the Coach tab.')
-      : null));
+      : null,
+    el('button', { class: 'btn ghost', style: 'margin-top:12px', onclick: insightsScreen },
+      '📊 Score insights')));
 
   // Today's session (from the active plan)
   const plan = await activePlan();
@@ -256,6 +259,146 @@ async function today(root) {
 function todayGreeting() {
   const h = new Date().getHours();
   return h < 12 ? 'Ready to crush today?' : h < 18 ? 'How’s the day tracking?' : 'Time for the evening review.';
+}
+
+/* ---------------- Score insights (full page) ---------------- */
+
+const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+const fmtWeek = iso => { const d = new Date(iso + 'T12:00:00'); return `${d.getDate()} ${MONTHS[d.getMonth()]}`; };
+
+/* Weekly aggregate trend as an SVG line: 2px accent line, 10% area wash,
+   ring-backed end dot with a direct value label; hairline gridlines at 0/50/100
+   and a muted reference line where the locked baseline sits. */
+function trendChart(rows, baselineRow) {
+  const W = 340, H = 150, L = 30, R = 40, T = 14, B = 22;
+  const y = v => T + (100 - v) / 100 * (H - T - B);
+  const x = i => L + (rows.length === 1 ? 0 : i / (rows.length - 1) * (W - L - R));
+  const pts = rows.map((r, i) => [x(i), y(r.aggregate)]);
+  const line = pts.map((p, i) => `${i ? 'L' : 'M'}${p[0].toFixed(1)},${p[1].toFixed(1)}`).join(' ');
+  const area = `${line} L${pts[pts.length - 1][0].toFixed(1)},${y(0)} L${pts[0][0].toFixed(1)},${y(0)} Z`;
+  const grid = [0, 50, 100].map(v =>
+    `<line x1="${L}" y1="${y(v)}" x2="${W - R}" y2="${y(v)}" stroke="#232B1B" stroke-width="1"/>` +
+    `<text x="${L - 6}" y="${y(v) + 3.5}" text-anchor="end" font-size="10" fill="#8B9483">${v}</text>`).join('');
+  const base = baselineRow ? (
+    `<line x1="${L}" y1="${y(baselineRow.aggregate)}" x2="${W - R}" y2="${y(baselineRow.aggregate)}" stroke="#8B9483" stroke-width="1" opacity=".55"/>` +
+    `<text x="${W - R}" y="${y(baselineRow.aggregate) - 4}" text-anchor="end" font-size="10" fill="#8B9483">baseline ${baselineRow.aggregate}</text>`) : '';
+  const [ex, ey] = pts[pts.length - 1];
+  const wrap = document.createElement('div');
+  wrap.innerHTML =
+    `<svg viewBox="0 0 ${W} ${H}" style="width:100%;display:block" role="img"
+       aria-label="Weekly Lifestyle Score trend, latest ${rows[rows.length - 1].aggregate}">
+      ${grid}${base}
+      <path d="${area}" fill="#A3E635" opacity=".1"/>
+      <path d="${line}" fill="none" stroke="#A3E635" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+      <circle cx="${ex}" cy="${ey}" r="4.5" fill="#A3E635" stroke="#12160E" stroke-width="2"/>
+      <text x="${ex + 8}" y="${ey + 4}" font-size="12" font-weight="700" fill="#F4F6F0">${rows[rows.length - 1].aggregate}</text>
+      <text x="${L}" y="${H - 6}" font-size="10" fill="#8B9483">${fmtWeek(rows[0].week_start)}</text>
+      <text x="${W - R}" y="${H - 6}" text-anchor="end" font-size="10" fill="#8B9483">this week</text>
+    </svg>`;
+  return wrap.firstElementChild;
+}
+
+function driverRow(d) {
+  const bar = el('span', { style: 'display:block;height:6px;border-radius:3px;background:var(--card-2);overflow:hidden;margin-top:5px' },
+    el('i', { style: `display:block;height:100%;border-radius:3px;background:var(--accent);width:${d.score ?? 0}%` }));
+  return el('div', { style: 'margin:10px 0' },
+    el('div', { class: 'row', style: 'justify-content:space-between;gap:8px' },
+      el('span', { style: 'font-size:14px' }, d.label),
+      el('span', { class: 'muted', style: 'font-size:12px;text-align:right' }, d.value)),
+    bar,
+    d.score != null && d.score < 70
+      ? el('p', { class: 'muted', style: 'font-size:12.5px;margin-top:5px' }, '→ ' + d.tip)
+      : null);
+}
+
+async function insightsScreen() {
+  history.pushState({ tab: localStorage.getItem('trainer_tab') || 'today', player: true }, '');
+  const root = $('#screen');
+  root.replaceChildren(el('h1', { class: 'h-page' }, 'Score insights'));
+
+  const { aggregate, pillars, detail } = await scoreDetail();
+
+  // score history from the cloud (weekly rows; earliest locked row = baseline)
+  let history_ = [];
+  try {
+    if (signedIn()) history_ = await restGet('trainer_scores', 'select=week_start,aggregate,pillars,is_baseline&order=week_start');
+  } catch {}
+  history_ = history_.filter(r => r.aggregate != null).slice(-12);
+  const baselineRow = history_.find(r => r.is_baseline) || null;
+
+  // ---- headline: where you are, vs your locked starting point ----
+  const delta = baselineRow && aggregate != null ? aggregate - baselineRow.aggregate : null;
+  root.append(el('div', { class: 'card' },
+    el('h2', {}, 'This week'),
+    el('div', { class: 'row', style: 'gap:16px;align-items:center' },
+      scoreRing(aggregate),
+      el('div', { class: 'grow' },
+        delta != null
+          ? el('p', { style: 'font-size:15px;font-weight:700' },
+              `${delta >= 0 ? '+' : ''}${delta} vs your baseline (${baselineRow.aggregate})`)
+          : el('p', { class: 'muted' }, 'Baseline locks after the two-week calibration.'),
+        el('p', { class: 'muted', style: 'font-size:12.5px;margin-top:6px' },
+          'Weighted for weight loss: Fuel 30% · Move 25% · Recover 20% · Consistency 15% · Body 10%. ' +
+          'Pillars without data are left out — never counted against you.')))));
+
+  // ---- trend ----
+  root.append(el('div', { class: 'card' },
+    el('h2', {}, 'Trend — weekly score'),
+    history_.length >= 2
+      ? trendChart(history_, baselineRow)
+      : el('p', { class: 'muted' },
+          'The trend appears once two weekly scores are on record — keep logging, this fills in by itself.')));
+
+  // ---- quick wins: biggest score movers first (pillar weight × gap) ----
+  const wins = [];
+  for (const [key, d] of Object.entries(detail)) {
+    for (const dr of d.drivers) {
+      if (dr.score == null || dr.score >= 85) continue;
+      wins.push({ pillar: WEIGHTS[key].label, impact: WEIGHTS[key].weight * (100 - dr.score), ...dr });
+    }
+  }
+  wins.sort((a, b) => b.impact - a.impact);
+  if (wins.length) {
+    root.append(el('div', { class: 'card' },
+      el('h2', {}, 'Biggest wins available'),
+      ...wins.slice(0, 3).map((w, i) => el('div', { style: 'margin:10px 0' },
+        el('p', { style: 'font-size:14px;font-weight:700' }, `${i + 1}. ${w.label} `,
+          el('span', { class: 'muted', style: 'font-weight:400;font-size:12px' }, `· ${w.pillar} pillar`)),
+        el('p', { class: 'muted', style: 'font-size:13px;margin-top:2px' }, w.tip))),
+      el('p', { class: 'muted', style: 'font-size:12px;margin-top:8px' },
+        'Ranked by how much each one moves the aggregate — pillar weight × the gap to 100.')));
+  }
+
+  // ---- pillar breakdowns ----
+  for (const [key, { label, weight }] of Object.entries(WEIGHTS)) {
+    const d = detail[key];
+    root.append(el('div', { class: 'card' },
+      el('div', { class: 'row', style: 'justify-content:space-between;margin-bottom:2px' },
+        el('h2', { style: 'margin-bottom:0' }, `${label} · ${Math.round(weight * 100)}%`),
+        el('span', { style: 'font-weight:700;font-size:15px' }, d.score === null ? '–' : `${d.score}`)),
+      d.drivers.length
+        ? el('div', {}, ...d.drivers.map(driverRow))
+        : el('p', { class: 'muted' }, noDataHint(key))));
+  }
+
+  // ---- hand off to Vic ----
+  root.append(el('button', {
+    class: 'btn', style: 'width:100%', onclick: () => {
+      coachPrefill = 'Break down my Lifestyle Score for me — what single change moves it most this week?';
+      go('coach');
+    },
+  }, '💬 Ask Vic to break it down'));
+  window.scrollTo(0, 0);
+}
+
+function noDataHint(key) {
+  return {
+    move: 'No workouts or step data this week — a logged walk or a Strava sync starts this pillar.',
+    fuel: 'No meals or check-ins this week — the daily check-in on Today takes 30 seconds.',
+    recover: 'No check-ins or Garmin day logs yet — rate sleep and energy in the daily check-in.',
+    consistency: 'Nothing logged in the last 7 days.',
+    body: 'Log weight most mornings — four entries start the trend.',
+  }[key];
 }
 
 /* One standard-drink ≈ UK units per serving type (population averages). */
@@ -394,6 +537,7 @@ async function coach(root) {
   }
 
   const input = el('input', { placeholder: 'Talk to Vic…', enterkeyhint: 'send' });
+  if (coachPrefill) { input.value = coachPrefill; coachPrefill = null; }
   const send = async () => {
     const text = input.value.trim();
     if (!text) return;
