@@ -123,6 +123,16 @@ create table if not exists trainer_benchmarks (      -- fitness/strength tests, 
 -- same in-place editing contract as measurements
 create unique index if not exists trainer_benchmarks_user_ts on trainer_benchmarks(user_id, ts);
 
+create table if not exists trainer_chat (              -- Vic conversation history (synced)
+  id      uuid primary key default gen_random_uuid(),
+  user_id uuid not null default auth.uid(),
+  ts      timestamptz not null default now(),
+  role    text not null check (role in ('user','assistant')),
+  text    text not null,
+  actions jsonb                                        -- [log:...] buttons attached to the reply
+);
+create unique index if not exists trainer_chat_user_ts_role on trainer_chat(user_id, ts, role);
+
 -- ---------- Cookbook Sync Module contract (SPEC §5.5) ----------
 -- Cookbook is source of truth for pantry/recipes/shopping; Trainer App for meal plans.
 
@@ -180,7 +190,7 @@ begin
   foreach t in array array[
     'trainer_profile','trainer_weights','trainer_food_logs','trainer_workouts',
     'trainer_checkins','trainer_journal_tags','trainer_daily_metrics','trainer_scores',
-    'trainer_plans','trainer_measurements','trainer_benchmarks','shared_recipes','shared_pantry_items','shared_shopping_items',
+    'trainer_plans','trainer_measurements','trainer_benchmarks','trainer_chat','shared_recipes','shared_pantry_items','shared_shopping_items',
     'shared_meal_plans','shared_cooked_events'
   ] loop
     execute format('alter table %I enable row level security', t);

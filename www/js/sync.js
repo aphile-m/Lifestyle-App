@@ -142,6 +142,11 @@ const MAP = {
     up: r => ({ day: day(r.ts), sleep_score: r.sleepScore ?? null, resting_hr: r.restingHr ?? null, stress_avg: r.stress ?? null, body_battery_high: r.bodyBattery ?? null, steps: r.steps ?? null }),
     down: t => ({ ts: t.day + 'T12:00:00.000Z', sleepScore: t.sleep_score, restingHr: t.resting_hr, stress: t.stress_avg, bodyBattery: t.body_battery_high, steps: t.steps }),
   },
+  chat: {
+    table: 'trainer_chat', conflict: 'user_id,ts,role',
+    up: r => ({ ts: r.ts, role: r.role, text: r.text, actions: r.actions ?? null }),
+    down: t => ({ ts: t.ts, role: t.role, text: t.text, actions: t.actions }),
+  },
   plans: {
     table: 'trainer_plans', orderBy: 'created_at',
     up: r => ({ created_at: r.ts, active: !!r.active, month_theme: r.plan?.month_theme || null, start_date: r.plan?.start_date || null, plan: r.plan }),

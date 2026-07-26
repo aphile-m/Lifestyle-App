@@ -14,11 +14,15 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 29; // bump together with CACHE in sw.js
+const WEB_VERSION = 30; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
 let coachPrefill = null; // question handed to the coach screen by other screens
+let vicThinking = false; // a reply is in flight — survives leaving the screen
+let onVicUpdate = null; // active screen's refresh hook; must return true if it rendered
+let planJob = null, planJobStart = 0; // in-flight plan generation (singleton)
+let mealJob = null, mealJobStart = 0, mealDraft = null; // in-flight meal-plan draft
 
 function go(tab, fromPop = false) {
   if (journeyActive()) { renderJourney(); return; } // sheets saved mid-journey refresh the journey
@@ -414,36 +418,27 @@ async function insightsScreen() {
         : el('p', { class: 'muted' }, noDataHint(key))));
   }
 
-  // ---- ask Vic about it, right here (turns also land in the Vic tab) ----
+  // ---- ask Vic about it, right here (same engine as the Vic tab: replies
+  // keep coming if you leave, and every turn lands in the synced history) ----
   const qa = el('div', { style: 'display:flex;flex-direction:column;gap:10px' });
+  const qaBase = chatHistory.length;
+  const renderQa = () => {
+    qa.replaceChildren(...chatHistory.slice(qaBase).flatMap(m => {
+      const nodes = [el('div', { class: 'bubble ' + (m.role === 'user' ? 'me' : 'vic') }, m.content)];
+      if (m.role === 'assistant' && m.actions?.length) nodes.push(actionChips(m.actions));
+      return nodes;
+    }));
+    if (vicThinking) qa.append(thinkRow());
+    qa.lastElementChild?.scrollIntoView({ block: 'end' });
+    return true;
+  };
+  onVicUpdate = () => qa.isConnected ? renderQa() : false;
   const input = el('input', { placeholder: 'Ask Vic about your score…', enterkeyhint: 'send' });
-  const send = async () => {
+  const send = () => {
     const text = input.value.trim();
     if (!text) return;
-    if (!settings.apiKey) { apiKeySheet(); return; }
     input.value = '';
-    qa.append(el('div', { class: 'bubble me' }, text));
-    chatHistory.push({ role: 'user', content: text });
-    await logs.add('chat', { role: 'user', text });
-    const think = el('div', { class: 'bubble vic think-row' },
-      el('span', { class: 'tdots' }, el('i'), el('i'), el('i')));
-    qa.append(think);
-    think.scrollIntoView({ block: 'end' });
-    try {
-      const reply = await askVic(chatHistory.slice(-20), insightsCtx);
-      think.remove();
-      const { text: replyText, keys } = extractChatActions(reply);
-      const b = el('div', { class: 'bubble vic' }, replyText);
-      qa.append(b);
-      const chips = actionChips(keys);
-      if (chips) qa.append(chips);
-      b.scrollIntoView({ block: 'end' });
-      chatHistory.push({ role: 'assistant', content: replyText });
-      await logs.add('chat', { role: 'assistant', text: replyText });
-    } catch (e) {
-      think.remove();
-      qa.append(el('div', { class: 'bubble vic' }, '⚠️ ' + e.message));
-    }
+    sendToVic(text, insightsCtx);
   };
   input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
   root.append(el('div', { class: 'card' },
@@ -622,6 +617,37 @@ function actionChips(keys) {
     ...keys.map(k => el('button', { class: 'chip on', onclick: CHAT_ACTIONS[k][1] }, CHAT_ACTIONS[k][0])));
 }
 
+const thinkRow = () => el('div', { class: 'bubble vic think-row' },
+  el('span', { class: 'tdots' }, el('i'), el('i'), el('i')),
+  el('span', { class: 'muted' }, 'Vic is thinking…'));
+
+/* The conversation engine is DOM-independent: leaving the screen (or switching
+   tabs) never drops a reply. Screens register onVicUpdate to repaint; when no
+   screen is showing the chat, the reply lands as a toast + persisted history.
+   Every turn is saved to IndexedDB AND synced to the cloud (trainer_chat). */
+async function sendToVic(text, extraContext = '') {
+  if (!settings.apiKey) { apiKeySheet(); return; }
+  chatHistory.push({ role: 'user', content: text });
+  await logs.add('chat', { role: 'user', text });
+  vicThinking = true;
+  onVicUpdate?.();
+  try {
+    const history = chatHistory.slice(-20).map(({ role, content }) => ({ role, content }));
+    const reply = await askVic(history, extraContext);
+    const { text: replyText, keys } = extractChatActions(reply);
+    chatHistory.push({ role: 'assistant', content: replyText, actions: keys });
+    await logs.add('chat', { role: 'assistant', text: replyText, actions: keys });
+    trySync();
+    vicThinking = false;
+    if (!(onVicUpdate?.())) toast('💬 Vic replied — check the Vic tab.');
+  } catch (e) {
+    vicThinking = false;
+    onVicUpdate?.();
+    if (e.message === 'NO_KEY') { apiKeySheet(); return; }
+    toast('⚠️ Vic: ' + e.message);
+  }
+}
+
 /* ---------------- Coach (Vic) ---------------- */
 async function coach(root) {
   root.append(el('div', { class: 'hey-row', style: 'margin-bottom:8px' },
@@ -632,60 +658,58 @@ async function coach(root) {
   const chat = el('div', { class: 'chat' });
   root.append(chat);
 
-  const stored = await logs.recent('chat', 2);
-  for (const m of stored) bubble(chat, m.role === 'user' ? 'me' : 'vic', m.text);
-  if (!stored.length) {
-    bubble(chat, 'vic',
-      'I’m Vic. One goal on the board: sustainable weight loss, measured properly. ' +
-      'Step one is the measuring session — tape and benchmarks, Me tab. Then I build your plan: ' +
-      'a theme for the month, a focus for each week, a workout for the day. No prescriptions before measurement. What’s on your mind?');
-  }
+  const render = async () => {
+    const stored = await logs.recent('chat', 2);
+    // rehydrate the in-memory conversation after a relaunch so Vic keeps context
+    if (!chatHistory.length && stored.length) {
+      chatHistory = stored.map(m => ({ role: m.role, content: m.text, actions: m.actions }));
+    }
+    chat.replaceChildren();
+    if (!stored.length) {
+      bubble(chat, 'vic',
+        'I’m Vic. One goal on the board: sustainable weight loss, measured properly. ' +
+        'Step one is the measuring session — tape and benchmarks, Me tab. Then I build your plan: ' +
+        'a theme for the month, a focus for each week, a workout for the day. No prescriptions before measurement. What’s on your mind?');
+    }
+    for (const m of stored) bubble(chat, m.role === 'user' ? 'me' : 'vic', m.text);
+    const last = stored[stored.length - 1];
+    if (!vicThinking && last?.role === 'assistant' && last.actions?.length) {
+      chat.append(actionChips(last.actions));
+    }
+    if (vicThinking) chat.append(thinkRow());
+    chat.lastElementChild?.scrollIntoView({ block: 'end' });
+  };
+  await render();
+  onVicUpdate = () => chat.isConnected ? (render(), true) : false;
 
   const input = el('input', { placeholder: 'Talk to Vic…', enterkeyhint: 'send' });
   if (coachPrefill) { input.value = coachPrefill; coachPrefill = null; }
-  const send = async () => {
+  const send = () => {
     const text = input.value.trim();
     if (!text) return;
-    if (!settings.apiKey) { apiKeySheet(); return; }
     input.value = '';
-    bubble(chat, 'me', text);
-    chatHistory.push({ role: 'user', content: text });
-    await logs.add('chat', { role: 'user', text });
-    const thinking = thinkingBubble(chat);
-    try {
-      const reply = await askVic(chatHistory.slice(-20));
-      thinking.done();
-      const { text: replyText, keys } = extractChatActions(reply);
-      bubble(chat, 'vic', replyText);
-      const chips = actionChips(keys);
-      if (chips) { chat.append(chips); chips.scrollIntoView({ block: 'end' }); }
-      chatHistory.push({ role: 'assistant', content: replyText });
-      await logs.add('chat', { role: 'assistant', text: replyText });
-    } catch (e) {
-      thinking.done();
-      if (e.message === 'NO_KEY') { apiKeySheet(); return; }
-      bubble(chat, 'vic', '⚠️ ' + e.message);
-    }
+    sendToVic(text);
   };
   input.addEventListener('keydown', e => { if (e.key === 'Enter') send(); });
   root.append(el('div', { class: 'chat-input' }, input, el('button', { class: 'btn', onclick: send }, 'Send')));
-  chat.scrollIntoView(false);
 }
 
 /* Staged progress bar for long Vic jobs (plan/meal-plan generation): the fill
    creeps toward ~92% over the expected duration while the label walks through
    the stages, then finish() snaps it to 100%. */
-function vicProgress(stages, expectedMs = 35000) {
+function vicProgress(stages, expectedMs = 35000, startedAt = null) {
   const label = el('span', { class: 'muted', style: 'font-size:13px' }, stages[0]);
   const fill = el('i', { style: 'display:block;height:100%;border-radius:3px;background:var(--accent);width:3%;transition:width .8s linear' });
   const bar = el('span', { style: 'display:block;height:6px;border-radius:3px;background:var(--card-2);overflow:hidden;margin:8px 0 6px' }, fill);
-  const t0 = Date.now();
+  const t0 = startedAt || Date.now();
   const tick = () => {
+    if (!fill.isConnected && Date.now() - t0 > 2000) return clearInterval(timer); // screen left — stop ticking
     const f = Math.min(0.92, (Date.now() - t0) / expectedMs);
     fill.style.width = Math.max(3, f * 100).toFixed(0) + '%';
     label.textContent = stages[Math.min(stages.length - 1, Math.floor(f * stages.length))];
   };
   const timer = setInterval(tick, 800);
+  setTimeout(tick, 0);
   return {
     el: el('div', { class: 'grow' },
       el('div', { class: 'row', style: 'gap:8px' },
@@ -696,20 +720,6 @@ function vicProgress(stages, expectedMs = 35000) {
   };
 }
 
-/* Animated progress while Vic works: bouncing dots + staged status. */
-function thinkingBubble(chat) {
-  const stages = ['Reading your week…', 'Checking your numbers…', 'Thinking it through…', 'Writing back…'];
-  const label = el('span', { class: 'muted' }, stages[0]);
-  const b = el('div', { class: 'bubble vic think-row' },
-    el('span', { class: 'tdots' }, el('i'), el('i'), el('i')), label);
-  chat.append(b);
-  b.scrollIntoView({ block: 'end' });
-  let i = 0;
-  const timer = setInterval(() => { i = Math.min(i + 1, stages.length - 1); label.textContent = stages[i]; }, 2600);
-  b.done = () => { clearInterval(timer); b.remove(); };
-  return b;
-}
-
 function bubble(chat, cls, text) {
   const b = el('div', { class: 'bubble ' + cls }, text);
   chat.append(b);
@@ -718,6 +728,27 @@ function bubble(chat, cls, text) {
 }
 
 /* ---------------- Train ---------------- */
+
+const PLAN_STAGES = [
+  'Reading your measurements…', 'Reading benchmarks & equipment…',
+  'Choosing the month’s theme…', 'Programming weeks 1–3…',
+  'Adding the week-4 deload…', 'Final checks…',
+];
+
+function startPlanJob() {
+  if (!settings.apiKey) { apiKeySheet(); return; }
+  if (!planJob) {
+    planJobStart = Date.now();
+    planJob = generatePlan()
+      .then(() => { toast('📋 Plan ready — Train tab.'); trySync(); })
+      .catch(e => toast(e.message === 'NO_BASELINE' ? 'Measure first — Me tab.' : '⚠️ ' + e.message))
+      .finally(() => {
+        planJob = null;
+        if (localStorage.getItem('trainer_tab') === 'train') go('train');
+      });
+  }
+  go('train'); // repaint into the progress state
+}
 async function train(root) {
   root.append(el('h1', { class: 'h-page' }, 'Train'));
 
@@ -732,38 +763,22 @@ async function train(root) {
     return;
   }
 
-  // Gate 2: no plan yet → generate (staged progress bar — never a dead button)
+  // Gate 2: no plan yet → generate. The job is a SINGLETON that keeps running
+  // if you leave the tab — coming back shows live progress, never a restart.
   if (!plan) {
-    const card = el('div', { class: 'card' });
-    const btn = el('button', { class: 'btn', style: 'margin-top:10px' }, 'Vic, build my plan');
-    btn.addEventListener('click', async () => {
-      if (!settings.apiKey) { apiKeySheet(); return; }
-      const prog = vicProgress([
-        'Reading your measurements…', 'Reading benchmarks & equipment…',
-        'Choosing the month’s theme…', 'Programming weeks 1–3…',
-        'Adding the week-4 deload…', 'Final checks…',
-      ], 40000);
-      card.replaceChildren(
+    if (planJob) {
+      const prog = vicProgress(PLAN_STAGES, 40000, planJobStart);
+      root.append(el('div', { class: 'card' },
         el('h2', {}, 'Vic is building your plan'),
-        el('div', { class: 'row', style: 'gap:14px;align-items:center' },
-          vicSprite(64, 'still'), prog.el));
-      try {
-        await generatePlan();
-        prog.finish();
-        toast('Plan ready.');
-        trySync();
-        go('train');
-      } catch (e) {
-        prog.stop();
-        go('train');
-        toast(e.message === 'NO_BASELINE' ? 'Measure first — Me tab.' : e.message);
-      }
-    });
-    card.append(
+        el('div', { class: 'row', style: 'gap:14px;align-items:center' }, vicSprite(64, 'still'), prog.el),
+        el('p', { class: 'muted', style: 'font-size:12px;margin-top:8px' },
+          'Keeps working if you switch tabs — you’ll get a ping when it’s ready.')));
+      return;
+    }
+    root.append(el('div', { class: 'card' },
       el('h2', {}, 'Ready to plan'),
       el('p', {}, 'Measurements are in. Vic will write a 4-week block: a monthly theme, a focus per week (week 4 deloads), and workouts of the day built from your equipment within your session budget.'),
-      btn);
-    root.append(card);
+      el('button', { class: 'btn', style: 'margin-top:10px', onclick: startPlanJob }, 'Vic, build my plan')));
     return;
   }
 
@@ -937,24 +952,21 @@ async function fuel(root) {
     }
     planCard.append(el('p', { class: 'muted', style: 'margin-top:6px' },
       'Agreed — it’s in the cookbook with the shopping list.'));
+  } else if (mealJob) {
+    const prog = vicProgress([
+      'Reading your recipes & pantry…', 'Matching macros to training days…',
+      'Writing the week…', 'Final checks…',
+    ], 30000, mealJobStart);
+    planCard.append(el('div', { class: 'row', style: 'gap:14px;align-items:center;margin-top:6px' },
+      vicSprite(64, 'still'), prog.el),
+      el('p', { class: 'muted', style: 'font-size:12px;margin-top:8px' },
+        'Keeps working if you switch tabs — you’ll get a ping when it’s ready.'));
   } else {
-    const btn = el('button', { class: 'btn', style: 'margin-top:6px' }, 'Vic, draft this week');
-    btn.addEventListener('click', async () => {
-      if (!settings.apiKey) { apiKeySheet(); return; }
-      const prog = vicProgress([
-        'Reading your recipes & pantry…', 'Matching macros to training days…',
-        'Writing the week…', 'Final checks…',
-      ], 30000);
-      const progRow = el('div', { class: 'row', style: 'gap:14px;align-items:center;margin-top:10px' },
-        vicSprite(64, 'still'), prog.el);
-      btn.replaceWith(progRow);
-      try { mealPlanDraftSheet(await draftMealPlan()); prog.finish(); }
-      catch (e) { toast(e.message === 'NO_KEY' ? 'Add your API key first.' : e.message); }
-      prog.stop();
-      progRow.replaceWith(btn);
-    });
     planCard.append(el('p', { class: 'muted' },
-      'Vic drafts dinners from your cookbook recipes and live pantry, macro-matched to training days. You agree it before anything syncs.'), btn);
+      'Vic drafts dinners from your cookbook recipes and live pantry, macro-matched to training days. You agree it before anything syncs.'),
+      el('div', { class: 'chips', style: 'margin-top:8px' },
+        el('button', { class: 'btn', onclick: startMealJob }, 'Vic, draft this week'),
+        mealDraft ? el('button', { class: 'chip', onclick: () => mealPlanDraftSheet(mealDraft) }, '📋 Review the draft') : null));
   }
   root.append(planCard);
 
@@ -998,6 +1010,25 @@ async function fuel(root) {
   root.append(recCard);
 }
 
+function startMealJob() {
+  if (!settings.apiKey) { apiKeySheet(); return; }
+  if (!mealJob) {
+    mealJobStart = Date.now();
+    mealJob = draftMealPlan()
+      .then(d => {
+        mealDraft = d;
+        if (localStorage.getItem('trainer_tab') === 'fuel') mealPlanDraftSheet(d);
+        else toast('🍲 Meal draft ready — Fuel tab.');
+      })
+      .catch(e => toast(e.message === 'NO_KEY' ? 'Add your API key first.' : '⚠️ ' + e.message))
+      .finally(() => {
+        mealJob = null;
+        if (localStorage.getItem('trainer_tab') === 'fuel') go('fuel');
+      });
+  }
+  go('fuel'); // repaint into the progress state
+}
+
 function mealPlanDraftSheet(draft) {
   const close = sheet('Vic’s draft — agree it?',
     ...draft.days.map(d => el('p', { style: 'margin:4px 0' },
@@ -1009,12 +1040,13 @@ function mealPlanDraftSheet(draft) {
         class: 'btn', onclick: async () => {
           try {
             const r = await agreeMealPlan(draft);
+            mealDraft = null;
             close(); toast(r.pushed ? `Agreed — sent to the cookbook (${r.items} shopping items).` : 'Agreed — saved locally (sign in to push to the cookbook).');
             go('fuel');
           } catch (e) { toast(e.message); }
         },
       }, 'Agree ✓'),
-      el('button', { class: 'chip', onclick: () => { close(); toast('Draft discarded — ask Vic again anytime.'); } }, 'Discard')));
+      el('button', { class: 'chip', onclick: () => { mealDraft = null; close(); toast('Draft discarded — ask Vic again anytime.'); go('fuel'); } }, 'Discard')));
 }
 
 function photoLogSheet() {
