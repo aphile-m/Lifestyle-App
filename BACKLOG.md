@@ -33,9 +33,9 @@ each item implements.
 
 ## Next
 
-- [ ] **Health Connect (native)** — Capacitor Android plugin reading Garmin sleep/RHR/
-      stress/Body Battery automatically; replaces the manual metrics sheet. Needs an
-      Android build + on-device testing.
+- [x] **Health Connect (native)** — shipped android-v5: @capgo/capacitor-health pulls
+      steps, sleep duration and resting HR automatically each launch. Sleep score /
+      Body Battery stay manual (Garmin doesn't share them with Health Connect).
 - [ ] **Impact analysis engine** — 5×5/90-day behaviour insights + monthly impact report
       (SPEC §3.3); needs a few weeks of journal data to be meaningful.
 - [ ] **Readiness score & soreness body map** — gates daily plan intensity (SPEC §6).
