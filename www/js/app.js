@@ -14,8 +14,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 40; // bump together with CACHE in sw.js AND the ship date below
-const WEB_SHIPPED = '26 Jul 2026';
+const WEB_VERSION = 41; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '26 Jul 2026, 12:25 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
