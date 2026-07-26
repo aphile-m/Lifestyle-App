@@ -14,7 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 31; // bump together with CACHE in sw.js
+const WEB_VERSION = 32; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -1420,8 +1420,8 @@ function cloudSheet() {
   const cfg = syncConfig();
   const url = el('input', { placeholder: 'https://xxxx.supabase.co', value: cfg.url });
   const key = el('input', { type: 'password', placeholder: 'anon / publishable key', value: cfg.anonKey });
-  const email = el('input', { type: 'email', placeholder: 'you@example.com', value: s.syncEmail || 'aphilem@gmail.com' });
-  const pass = el('input', { type: 'password', placeholder: 'password (min 6 chars)' });
+  const email = el('input', { type: 'email', placeholder: 'you@example.com', value: s.syncEmail || 'aphilem@gmail.com', autocomplete: 'username', name: 'email' });
+  const pass = el('input', { type: 'password', placeholder: 'password (min 6 chars)', autocomplete: 'current-password', name: 'password' });
   const status = el('p', { class: 'muted', style: 'margin-top:10px' },
     signedIn() ? `Signed in. Last sync: ${s.lastSync ? s.lastSync.slice(0, 16).replace('T', ' ') : 'never'}` : 'Not signed in.');
   const doAuth = fn => async () => {
@@ -1463,8 +1463,10 @@ function cloudSheet() {
       'Backs up your logs to your own Supabase project and syncs web ↔ Android. Fill these once — the values live only on this device.'),
     el('div', { class: 'field' }, el('label', {}, 'Project URL'), url),
     el('div', { class: 'field' }, el('label', {}, 'Publishable (anon) key'), key),
-    el('div', { class: 'field' }, el('label', {}, 'Email'), email),
-    el('div', { class: 'field' }, el('label', {}, 'Password'), pass),
+    // a real <form> lets Android's password manager offer save + autofill
+    el('form', { onsubmit: e => e.preventDefault() },
+      el('div', { class: 'field' }, el('label', {}, 'Email'), email),
+      el('div', { class: 'field' }, el('label', {}, 'Password'), pass)),
     el('div', { class: 'chips' },
       el('button', { class: 'chip', onclick: doAuth(signUp) }, 'Create account'),
       el('button', { class: 'chip', onclick: doAuth(signIn) }, 'Sign in'),
