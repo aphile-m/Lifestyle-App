@@ -14,7 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 39; // bump together with CACHE in sw.js AND the ship date below
+const WEB_VERSION = 40; // bump together with CACHE in sw.js AND the ship date below
 const WEB_SHIPPED = '26 Jul 2026';
 
 const screens = { today, coach, train, fuel, me };
@@ -545,7 +545,8 @@ function checkinForm() {
             tags.has(t) ? tags.delete(t) : tags.add(t);
             if (t === 'Alcohol') renderAlc(); // the Alcohol chip reveals the drink counters
           },
-        }, t)));
+        }, t)),
+        el('button', { class: 'chip', style: 'opacity:.7', onclick: checkinGuideSheet }, '?'));
       const sleep = ratingRow('Sleep quality', ex.sleep ?? 3);
       const energy = ratingRow('Energy / mood', ex.energy ?? 3);
       const water = counterRow('💧 Water (glasses)', ex.water ?? 0);
@@ -622,9 +623,16 @@ function checkinGuideSheet() {
     ...sec('🍺 Alcohol (tap the Alcohol chip to log)',
       'Counted in UK units per serving: beer/cider (330–500 ml) ≈ 1.7 · wine (175 ml glass) ≈ 2.3 · single spirit tot ≈ 1.4 (double = 2 tots) · cocktail ≈ 2.',
       'Low-risk guideline: ≤14 units/week. The score also credits the TREND — drinking less than your own recent baseline scores well even before you’re under 14.'),
-    ...sec('🏷 Journal tags',
-      'Late caffeine = within 8h of bed. Late meal = large meal within 2h of bed. Screens in bed = phone/TV after lights out. The rest are recovery helps (stretching, reading, cold shower) or context (travel).',
-      'Tags don’t change the score — they explain it. After a few weeks Vic correlates them with your sleep and energy.'),
+    ...sec('🏷 Journal tags — your personal experiment',
+      'Tags never change the score. They build evidence: after a few weeks, Vic compares your sleep and energy on days WITH a tag vs without it, so you learn what actually affects YOU.',
+      'Late caffeine — any caffeine within 8h of bed. Its half-life is 5–6h, so a 4pm coffee is still half-active at 10pm; it cuts deep sleep even when you nod off fine.',
+      'Alcohol — tap it to log drinks by type. Even 1–2 units suppress REM sleep and raise overnight heart rate — worth tagging even on a “just one” night.',
+      'Late meal — a proper meal within ~2h of bed. Digestion keeps your core temperature and heart rate up when they should be dropping.',
+      'Screens in bed — phone or TV after lights-out. The light and the scrolling both push sleep onset later.',
+      'Stretching — 10+ minutes of stretching or mobility work today. Recovery helper; eases next-day soreness.',
+      'Cold shower — ended your shower cold (30s+) or a cold plunge. Solid for alertness and mood; right after strength training it may blunt muscle gains — tag it and let your own data decide.',
+      'Reading in bed — wound down with a book instead of a screen. One of the most reliable sleep-onset improvers.',
+      'Travel — slept away from home or spent the day in transit. Context, not a sin: it tells Vic why the numbers dipped so an odd night doesn’t read as a slide.'),
     ...sec('📊 The day bars above the form',
       'Each bar is that day’s check-in average: sleep, energy, water vs 8 glasses, coffee vs ≤2 cups, alcohol vs none. Tap a bar to view or backfill that day.'));
 }
