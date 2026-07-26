@@ -14,7 +14,7 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 36; // bump together with CACHE in sw.js
+const WEB_VERSION = 37; // bump together with CACHE in sw.js
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -480,6 +480,19 @@ function noDataHint(key) {
 const DRINK_UNITS = { beer: 1.7, wine: 2.3, spirit: 1.4, cocktail: 2.0 };
 const todayIso = () => new Date().toISOString().slice(0, 10);
 
+/* A simple per-day quality score for the check-in chart (0–100): the mean of
+   whatever was logged that day. Transparent maths, explained in the guide. */
+function checkinDayScore(c) {
+  if (!c) return null;
+  const parts = [];
+  if (c.sleep != null) parts.push((c.sleep - 1) / 4 * 100);
+  if (c.energy != null) parts.push((c.energy - 1) / 4 * 100);
+  if (c.water != null) parts.push(Math.min(100, c.water / 8 * 100));
+  if (c.coffee != null) parts.push(c.coffee <= 2 ? 100 : c.coffee <= 4 ? 70 : 40);
+  if (c.drinks != null) parts.push(c.drinks === 0 ? 100 : c.drinks <= 2 ? 75 : c.drinks <= 4 ? 45 : 20);
+  return parts.length ? Math.round(parts.reduce((a, b) => a + b, 0) / parts.length) : null;
+}
+
 function checkinForm() {
   const wrap = el('div', {});
   (async () => {
@@ -490,53 +503,80 @@ function checkinForm() {
     for (let d = 6; d >= 0; d--) days.push(new Date(Date.now() - d * 86400e3).toISOString().slice(0, 10));
     let selected = todayIso();
 
-    const strip = el('div', { class: 'chips', style: 'margin-bottom:12px' });
+    const strip = el('div', {});
     const formBox = el('div', {});
     const dayLabel = iso => {
       if (iso === todayIso()) return 'Today';
       const d = new Date(iso + 'T12:00:00');
       return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][d.getDay()] + ' ' + d.getDate();
     };
-    const renderStrip = () => strip.replaceChildren(...days.map(d => el('button', {
-      class: 'chip' + (d === selected ? ' on' : ''),
-      onclick: () => { selected = d; renderStrip(); renderForm(); },
-    }, dayLabel(d) + (byDay[d] ? ' ✓' : ''))));
+    // day selector doubling as a chart: bar height = that day's check-in score
+    const renderStrip = () => strip.replaceChildren(
+      el('div', { style: 'display:flex;gap:6px;align-items:flex-end;margin-bottom:12px' },
+        ...days.map(d => {
+          const score = checkinDayScore(byDay[d]);
+          const h = score == null ? 4 : Math.max(8, score * 0.44);
+          return el('button', {
+            class: 'daycol' + (d === selected ? ' on' : ''),
+            onclick: () => { selected = d; renderStrip(); renderForm(); },
+          },
+            score != null ? el('span', { class: 'daycol-num' }, String(score)) : null,
+            el('span', {
+              class: 'daycol-bar', style: `height:${h}px;` +
+                (score == null ? 'background:var(--card-2)' : ''),
+            }),
+            el('span', { class: 'daycol-lab' }, dayLabel(d).split(' ')[0]));
+        })));
 
     const renderForm = () => {
       const ex = byDay[selected] || {};
       const jx = jByDay[selected];
       const tags = new Set(jx?.tags || []);
+      const alcBox = el('div', {});
       const chipRow = el('div', { class: 'chips', style: 'margin:10px 0' },
         ...JOURNAL_TAGS.map(t => el('button', {
           class: 'chip' + (tags.has(t) ? ' on' : ''),
-          onclick: e => { e.target.classList.toggle('on'); tags.has(t) ? tags.delete(t) : tags.add(t); },
+          onclick: e => {
+            e.target.classList.toggle('on');
+            tags.has(t) ? tags.delete(t) : tags.add(t);
+            if (t === 'Alcohol') renderAlc(); // the Alcohol chip reveals the drink counters
+          },
         }, t)));
       const sleep = ratingRow('Sleep quality', ex.sleep ?? 3);
       const energy = ratingRow('Energy / mood', ex.energy ?? 3);
       const water = counterRow('💧 Water (glasses)', ex.water ?? 0);
       const coffee = counterRow('☕ Coffee (cups)', ex.coffee ?? 0);
 
-      // alcohol by type — converted to units, since a beer is not a double whisky
+      // alcohol by type — converted to units, since a beer is not a double whisky.
+      // Hidden until the Alcohol chip is on (or the day already has drinks logged).
       const det = { beer: 0, wine: 0, spirit: 0, cocktail: 0, ...(ex.drinksDetail || {}) };
+      if (ex.drinks > 0) tags.add('Alcohol');
+      const unitsNow = () => Object.entries(det).reduce((a, [k, n]) => a + n * DRINK_UNITS[k], 0);
       const unitsLine = el('p', { class: 'muted', style: 'font-size:13px;margin:2px 0 0 150px' }, '');
       const updUnits = () => {
-        const u = Object.entries(det).reduce((a, [k, n]) => a + n * DRINK_UNITS[k], 0);
-        unitsLine.textContent = u ? `≈ ${u.toFixed(1)} units (guide: ≤14/week)` : 'No alcohol today ✓';
+        unitsLine.textContent = unitsNow() ? `≈ ${unitsNow().toFixed(1)} units (guide: ≤14/week)` : 'Nothing counted yet.';
       };
-      const drinkRows = [
-        ['🍺 Beer / cider', 'beer'], ['🍷 Wine (glass)', 'wine'],
-        ['🥃 Spirits (tot)', 'spirit'], ['🍹 Cocktail', 'cocktail'],
-      ].map(([label, key]) => counterRow(label, det[key], v => { det[key] = v; updUnits(); }));
-      updUnits();
+      const renderAlc = () => {
+        if (!tags.has('Alcohol')) { alcBox.replaceChildren(); return; }
+        const drinkRows = [
+          ['🍺 Beer / cider', 'beer'], ['🍷 Wine (glass)', 'wine'],
+          ['🥃 Spirits (tot)', 'spirit'], ['🍹 Cocktail', 'cocktail'],
+        ].map(([label, key]) => counterRow(label, det[key], v => { det[key] = v; updUnits(); }));
+        alcBox.replaceChildren(...drinkRows.map(r => r.row), unitsLine);
+        updUnits();
+      };
+      renderAlc();
 
-      formBox.replaceChildren(chipRow, sleep.row, energy.row, water.row, coffee.row,
-        ...drinkRows.map(r => r.row), unitsLine,
+      formBox.replaceChildren(chipRow, sleep.row, energy.row, water.row, coffee.row, alcBox,
+        el('button', { class: 'chip', style: 'margin-top:8px', onclick: checkinGuideSheet },
+          'ℹ️ What counts? How to log each measure'),
         el('button', {
-          class: 'btn', style: 'margin-top:12px', onclick: async () => {
-            const units = Math.round(Object.entries(det).reduce((a, [k, n]) => a + n * DRINK_UNITS[k], 0) * 10) / 10;
+          class: 'btn', style: 'margin-top:12px;display:block', onclick: async () => {
+            const units = Math.round(unitsNow() * 10) / 10;
+            if (units > 0) tags.add('Alcohol');
             const vals = {
               sleep: sleep.value(), energy: energy.value(), water: water.value(), coffee: coffee.value(),
-              drinks: units, drinksDetail: { ...det },
+              drinks: tags.has('Alcohol') ? units : 0, drinksDetail: { ...det },
             };
             const ts = selected === todayIso() ? new Date().toISOString() : new Date(selected + 'T20:00:00').toISOString();
             const existing = byDay[selected];
@@ -555,6 +595,34 @@ function checkinForm() {
     wrap.append(strip, formBox);
   })();
   return wrap;
+}
+
+/* What each measure means and when a threshold is crossed (SPEC §6). */
+function checkinGuideSheet() {
+  const sec = (title, ...lines) => [
+    el('p', { style: 'font-weight:700;margin-top:12px' }, title),
+    ...lines.map(l => el('p', { class: 'muted', style: 'font-size:13.5px;margin:3px 0' }, l)),
+  ];
+  sheet('What counts?',
+    el('p', { class: 'muted' }, 'Every measure, what it feeds, and where the thresholds sit. Honest beats perfect — the score renormalises around anything you skip.'),
+    ...sec('😴 Sleep quality (1–5)',
+      '1 = broken night, under 5h. 2 = short or restless. 3 = okay, a bit groggy. 4 = solid 7h+, woke fine. 5 = 8h, woke fresh without the alarm.',
+      'Feeds the Recover pillar.'),
+    ...sec('⚡ Energy / mood (1–5)',
+      '1 = running on fumes. 3 = normal day. 5 = firing all day.',
+      'Persistent 1–2s tell Vic something (sleep, food, overtraining) needs attention.'),
+    ...sec('💧 Water (glasses)',
+      'A glass ≈ 250 ml. Target ≈ 8/day (~2 L). Tea and sugar-free drinks count; alcohol does not.'),
+    ...sec('☕ Coffee (cups)',
+      'One cup ≈ one shot/mug ≈ 100 mg caffeine. Energy drinks count as 1–2. Guide: ≤4/day, none within 8h of bed — late caffeine quietly wrecks the Sleep number.'),
+    ...sec('🍺 Alcohol (tap the Alcohol chip to log)',
+      'Counted in UK units per serving: beer/cider (330–500 ml) ≈ 1.7 · wine (175 ml glass) ≈ 2.3 · single spirit tot ≈ 1.4 (double = 2 tots) · cocktail ≈ 2.',
+      'Low-risk guideline: ≤14 units/week. The score also credits the TREND — drinking less than your own recent baseline scores well even before you’re under 14.'),
+    ...sec('🏷 Journal tags',
+      'Late caffeine = within 8h of bed. Late meal = large meal within 2h of bed. Screens in bed = phone/TV after lights out. The rest are recovery helps (stretching, reading, cold shower) or context (travel).',
+      'Tags don’t change the score — they explain it. After a few weeks Vic correlates them with your sleep and energy.'),
+    ...sec('📊 The day bars above the form',
+      'Each bar is that day’s check-in average: sleep, energy, water vs 8 glasses, coffee vs ≤2 cups, alcohol vs none. Tap a bar to view or backfill that day.'));
 }
 
 function counterRow(label, start = 0, onChange = null) {
@@ -768,7 +836,7 @@ function startPlanJob() {
   if (!planJob) {
     planJobStart = Date.now();
     planJob = generatePlan()
-      .then(() => { toast('📋 Plan ready — Train tab.'); trySync(); })
+      .then(() => { toast('📋 Plan ready — Train tab.'); trySync(); briefPlan(); })
       .catch(e => toast(e.message === 'NO_BASELINE' ? 'Measure first — Me tab.' : '⚠️ ' + e.message))
       .finally(() => {
         planJob = null;
@@ -776,6 +844,35 @@ function startPlanJob() {
       });
   }
   go('train'); // repaint into the progress state
+}
+
+/* Once a block lands, Vic talks the client through it: what to expect, why it
+   fits their numbers, the outcomes targeted and how we'll KNOW it worked.
+   Stored inside the plan JSON, so it syncs and survives reinstalls. */
+async function briefPlan() {
+  try {
+    const row = (await logs.all('plans')).filter(p => p.active).pop();
+    if (!row || row.plan.briefing) return false;
+    const compact = {
+      theme: row.plan.month_theme, rationale: row.plan.rationale, start: row.plan.start_date,
+      weeks: (row.plan.weeks || []).map(w => ({
+        week: w.week, theme: w.theme,
+        sessions: (w.sessions || []).map(s => `${s.title} (${s.type}, ${s.duration_min}min)`),
+      })),
+    };
+    const text = await vicBriefing(
+      'You just wrote this 4-week training block for me (below). Talk me through it in under 200 words, four short parts: ' +
+      '1) WHAT TO EXPECT — how the weeks feel and progress, incl. the week-4 deload. ' +
+      '2) WHY THIS — why this exact block fits my current measurements, benchmarks and weight trend. ' +
+      '3) THE TARGET — the concrete outcomes we are going for by the end of the block. ' +
+      '4) HOW WE’LL KNOW — exactly which numbers should move (weight trend band, which benchmarks at re-test, weekly score) so we can judge it honestly.',
+      'NEW TRAINING BLOCK:\n' + JSON.stringify(compact));
+    row.plan.briefing = text;
+    await logs.put('plans', { ...row, synced: false });
+    trySync();
+    if (localStorage.getItem('trainer_tab') === 'train') go('train');
+    return true;
+  } catch { return false; }
 }
 async function train(root) {
   root.append(el('h1', { class: 'h-page' }, 'Train'));
@@ -824,6 +921,33 @@ async function train(root) {
     el('p', { style: 'font-weight:700;font-size:18px' }, p.month_theme),
     p.rationale ? el('p', { class: 'muted', style: 'margin-top:6px' }, p.rationale) : null,
     el('p', { class: 'muted', style: 'margin-top:6px' }, `Started ${p.start_date}`)));
+
+  // Vic's walkthrough: expectations, fit, targets, and how we'll know it worked
+  if (p.briefing) {
+    root.append(el('div', { class: 'card' },
+      el('h2', {}, 'Vic’s walkthrough'),
+      el('div', { class: 'row', style: 'gap:12px;align-items:flex-start' },
+        vicSprite(52, 'still'),
+        el('p', { class: 'grow', style: 'white-space:pre-wrap;font-size:14.5px' }, p.briefing)),
+      el('button', {
+        class: 'chip', style: 'margin-top:10px', onclick: () => {
+          coachPrefill = 'About my current training block — ';
+          go('coach');
+        },
+      }, '💬 Ask Vic about the block')));
+  } else if (!planJob) {
+    const card = el('div', { class: 'card' },
+      el('h2', {}, 'Vic’s walkthrough'),
+      el('button', {
+        class: 'btn ghost', onclick: async e => {
+          const row = el('div', { class: 'row', style: 'gap:12px;align-items:center' },
+            vicSprite(52, 'still'), thinkRow());
+          e.target.replaceWith(row);
+          if (!(await briefPlan())) { row.replaceWith(el('p', { class: 'muted' }, '⚠️ Couldn’t reach Vic — try again.')); }
+        },
+      }, '🥊 Vic, talk me through this block'));
+    root.append(card);
+  }
 
   if (t.status === 'today') {
     root.append(wodCard(t.week, t.session, true));

@@ -100,6 +100,17 @@ body {
 /* inline variant: embedded in a card (Score insights Q&A) instead of fixed */
 .chat-input.inline { position: static; padding: 0; margin-top: 12px; }
 
+/* Daily check-in: day-selector columns that double as a score chart */
+.daycol {
+  flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: flex-end;
+  gap: 3px; background: none; border: none; padding: 4px 2px; border-radius: 8px; font: inherit; cursor: pointer;
+}
+.daycol-bar { display: block; width: 100%; max-width: 26px; border-radius: 4px 4px 2px 2px; background: var(--accent); }
+.daycol-lab { font-size: 11px; color: var(--ink-dim); }
+.daycol-num { font-size: 10px; color: var(--ink-dim); font-variant-numeric: tabular-nums; }
+.daycol.on { background: var(--card-2); }
+.daycol.on .daycol-lab { color: var(--accent); font-weight: 700; }
+
 /* Me — measurement/benchmark status rows */
 .chip.out { border: 1px solid var(--accent); color: var(--accent); background: none; font-size: 12px; padding: 4px 10px; }
 .howto {
