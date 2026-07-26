@@ -80,13 +80,17 @@ function checkRow(done, label, sub, btnLabel, onclick) {
 
 /* ---------- pages ---------- */
 const PAGES = [
-  { // 0 — welcome splash
+  { // 0 — welcome splash (with the returning-user fast path front and centre)
     render: async () => el('div', { class: 'j-page j-center' },
       el('div', { class: 'vic-hero' }, vicSprite(240)),
       el('h1', { class: 'j-title' }, 'Trainer App'),
       el('p', { class: 'j-tag' }, 'Your coach. Your kitchen. Your watch. One score.'),
       el('p', { class: 'muted', style: 'margin-top:14px;max-width:300px' },
-        'A short setup journey unlocks everything — a few minutes, once.')),
+        'A short setup journey unlocks everything — a few minutes, once.'),
+      signedIn() ? null : el('button', { class: 'btn ghost', style: 'margin-top:18px', onclick: deps.sheets.cloud },
+        '🔄 Used the app before? Sign in to restore'),
+      signedIn() ? null : el('p', { class: 'muted', style: 'font-size:12.5px;margin-top:8px;max-width:300px' },
+        'One sign-in brings back everything — your data, API key, Strava, the lot — and skips this journey.')),
     next: 'Begin',
   },
   { // 1 — what's inside
@@ -102,10 +106,11 @@ const PAGES = [
       const g = await gates();
       return el('div', { class: 'j-page' },
         el('h1', { class: 'j-title' }, 'App setup'),
-        el('p', { class: 'muted', style: 'margin-bottom:14px' }, 'Green ticks unlock the good stuff. Two are optional — skip and add them later in Me → Settings.'),
-        checkRow(g.apiKey, 'Anthropic API key', 'Vic’s voice — required. Stored only on this device.', 'Add key', deps.sheets.apiKey),
-        checkRow(g.cloud, 'Cloud sync', 'Backs up every log and connects the cookbook. Recommended.', 'Sign in', deps.sheets.cloud),
-        checkRow(g.strava, 'Strava (optional)', 'Runs and rides import themselves.', 'Connect', deps.sheets.strava),
+        el('p', { class: 'muted', style: 'margin-bottom:14px' },
+          'Green ticks unlock the good stuff. Used the app before? Do Cloud sync FIRST — the other ticks restore themselves.'),
+        checkRow(g.cloud, 'Cloud sync', 'Backs up every log — and one sign-in restores a previous setup (API key + Strava included).', 'Sign in', deps.sheets.cloud),
+        checkRow(g.apiKey, 'Anthropic API key', 'Vic’s voice — required. Restored by cloud sign-in, or add it fresh.', 'Add key', deps.sheets.apiKey),
+        checkRow(g.strava, 'Strava (optional)', 'Runs and rides import themselves. Restored by cloud sign-in.', 'Connect', deps.sheets.strava),
         el('p', { class: 'muted', style: 'margin-top:12px;font-size:13px' },
           '🍲 Cookbook sync is switched on from the cookbook app itself: Settings → Trainer App sync.'));
     },
