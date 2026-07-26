@@ -53,14 +53,15 @@ RULES
   block (~5 min). Every exercise names its equipment ("bodyweight" counts).
 - Calibrate difficulty to the benchmarks — the next step must be hittable.
 
-Return ONLY valid JSON, no markdown fences, exactly this shape:
+Return ONLY valid MINIFIED JSON (no whitespace, no markdown fences), exactly this shape:
 {"month_theme":"...","rationale":"1-2 sentences, Vic's voice, why this theme for this client",
  "start_date":"${nextMonday()}","weeks":[
    {"week":1,"theme":"...","sessions":[
      {"dow":1,"title":"...","type":"strength|run|conditioning|mobility","duration_min":${profile.sessionMinutes},
       "blocks":[{"name":"Warm-up","minutes":8,"exercises":[
         {"name":"...","equipment":"...","sets":2,"reps":"10","rest_sec":30,"note":"cue or target"}]}]}]}]}
-dow is ISO day-of-week (1=Mon…7=Sun). reps may be a count, a duration ("40s") or a distance ("2 km").`;
+dow is ISO day-of-week (1=Mon…7=Sun). reps may be a count, a duration ("40s") or a distance ("2 km").
+Keep every "note" under 8 words. The COMPLETE JSON must fit the reply — compact beats chatty.`;
 }
 
 function nextMonday() {
@@ -77,31 +78,48 @@ export async function generatePlan() {
   ]);
   if (!measurement && !benchmark) throw new Error('NO_BASELINE');
 
-  const res = await fetch('https://api.anthropic.com/v1/messages', {
-    method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      'x-api-key': apiKey,
-      'anthropic-version': '2023-06-01',
-      'anthropic-dangerous-direct-browser-access': 'true',
-    },
-    body: JSON.stringify({
-      model: MODEL, max_tokens: 8000,
-      messages: [{ role: 'user', content: planPrompt(settings.profile, measurement, benchmark, weights) }],
-    }),
-  });
-  if (!res.ok) {
-    let detail = '';
-    try { detail = (await res.json())?.error?.message || ''; } catch {}
-    throw new Error(`Plan generation failed (${res.status}). ${detail.slice(0, 140)}`);
+  const basePrompt = planPrompt(settings.profile, measurement, benchmark, weights);
+  let plan = null, lastErr = null;
+  // attempt 2 kicks in if the JSON came back truncated/broken (e.g. the reply
+  // hit the token cap mid-string — "Unterminated string in JSON")
+  for (let attempt = 0; attempt < 2 && !plan; attempt++) {
+    const prompt = attempt === 0 ? basePrompt
+      : basePrompt + '\n\nCRITICAL: your previous reply was cut off before the JSON closed. ' +
+        'Be MUCH more compact this time: minified JSON, notes under 5 words, no rationale over one sentence.';
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'content-type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: MODEL, max_tokens: 16000,
+        messages: [{ role: 'user', content: prompt }],
+      }),
+    });
+    if (!res.ok) {
+      let detail = '';
+      try { detail = (await res.json())?.error?.message || ''; } catch {}
+      throw new Error(`Plan generation failed (${res.status}). ${detail.slice(0, 140)}`);
+    }
+    const data = await res.json();
+    let text = (data.content || []).find(b => b.type === 'text')?.text.trim() || '';
+    text = text.replace(/^```(json)?\s*/i, '').replace(/```\s*$/, '');
+    try {
+      const parsed = JSON.parse(text);
+      if (!parsed.month_theme || !Array.isArray(parsed.weeks) || !parsed.weeks.length) {
+        throw new Error('unusable shape');
+      }
+      plan = parsed;
+    } catch (e) {
+      lastErr = data.stop_reason === 'max_tokens'
+        ? 'Plan came back too long and was cut off'
+        : 'Vic returned unusable JSON';
+    }
   }
-  const data = await res.json();
-  let text = (data.content || []).find(b => b.type === 'text')?.text.trim() || '';
-  text = text.replace(/^```(json)?\s*/i, '').replace(/```\s*$/, '');
-  const plan = JSON.parse(text);
-  if (!plan.month_theme || !Array.isArray(plan.weeks) || !plan.weeks.length) {
-    throw new Error('Vic returned an unusable plan — try again.');
-  }
+  if (!plan) throw new Error(lastErr + ' — twice. Try again in a minute.');
   // deactivate previous plans, store the new one
   const old = await logs.all('plans');
   for (const p of old.filter(p => p.active)) await logs.put('plans', { ...p, active: false });
