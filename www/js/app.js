@@ -14,7 +14,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 38; // bump together with CACHE in sw.js
+const WEB_VERSION = 39; // bump together with CACHE in sw.js AND the ship date below
+const WEB_SHIPPED = '26 Jul 2026';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -265,6 +266,9 @@ async function today(root) {
     el('h2', {}, 'Daily check-in'),
     el('p', { class: 'muted' }, 'Rate the day in 30 seconds — and tap an earlier day to backfill one you missed.'),
     checkinForm()));
+
+  root.append(el('p', { class: 'muted', style: 'text-align:center;font-size:11px;margin:14px 0 4px;opacity:.75' },
+    `Trainer App · web build v${WEB_VERSION} · shipped ${WEB_SHIPPED}`));
 }
 
 function todayGreeting() {
@@ -1334,7 +1338,7 @@ async function me(root) {
       el('button', { class: 'chip', onclick: metricsSheet }, '⌚ Garmin day log'),
       el('button', { class: 'chip', onclick: () => startJourney() }, '🚀 Replay setup journey')),
     el('p', { class: 'muted', style: 'margin-top:10px;font-size:12px' },
-      `Web build v${WEB_VERSION} — updates itself when you reopen the app.`)));
+      `Web build v${WEB_VERSION} (shipped ${WEB_SHIPPED}) — updates itself when you reopen the app.`)));
 }
 
 const fmtMinSec = s => `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
