@@ -3,7 +3,7 @@
 import { $, el, esc, scoreRing, sheet, toast } from './ui.js';
 import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, scoreDetail, trendWeight, energyTargets, WEIGHTS } from './score.js';
-import { askVic, vicBriefing } from './vic.js';
+import { askVic, vicBriefing, claude } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
 import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto, estimateMealFromText } from './fuel.js';
@@ -15,8 +15,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 43; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '26 Jul 2026, 13:20 SAST';
+const WEB_VERSION = 44; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '26 Jul 2026, 13:45 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -43,6 +43,9 @@ function go(tab, fromPop = false) {
 
 window.addEventListener('popstate', e => {
   if (journeyActive()) return; // the journey handles its own pages
+  // a sheet closing ON TOP of the player/insights pops back to their history
+  // entry — stay on that screen instead of re-rendering the tab beneath it
+  if (e.state?.player) return;
   if (e.state && e.state.tab) go(e.state.tab, true);
 });
 
@@ -1035,6 +1038,40 @@ function wodCard(week, session, startable) {
     startable ? el('button', { class: 'btn', style: 'margin-top:10px', onclick: () => player(session, week) }, 'Start session') : null);
 }
 
+/* Any exercise in any plan gets an explainer: Vic writes it once (setup, the
+   rep, form cues, the common mistake), then it's cached on-device forever. */
+function exerciseHowSheet(ex) {
+  const key = (ex.name || '').toLowerCase().trim();
+  let cache = {};
+  try { cache = JSON.parse(localStorage.getItem('trainer_ex_guides') || '{}'); } catch {}
+  const body = el('div', {});
+  sheet(ex.name,
+    el('div', { style: 'display:flex;justify-content:center;margin:4px 0 10px' }, exerciseAnim(ex.name, 7)),
+    el('p', { class: 'muted', style: 'font-size:13px' },
+      [ex.equipment && `Equipment: ${ex.equipment}`,
+        ex.reps && `Prescribed: ${ex.sets || 1}×${ex.reps}`,
+        ex.rest_sec && `rest ${ex.rest_sec}s`].filter(Boolean).join(' · ')),
+    body);
+  const render = text => body.replaceChildren(
+    el('p', { style: 'white-space:pre-wrap;font-size:14.5px;margin-top:8px' }, text));
+  if (cache[key]) return render(cache[key]);
+  if (!settings.apiKey) return render(ex.note || 'Add your API key (Me → Settings) and Vic explains any exercise right here.');
+  body.append(thinkRow());
+  claude(
+    `You are Vic, a personal trainer. Explain the exercise "${ex.name}"` +
+    (ex.equipment ? ` (equipment: ${ex.equipment})` : '') +
+    ' to a beginner in under 110 words, exactly this shape:\n' +
+    'SETUP: one line.\nTHE REP: 3–4 numbered steps.\nFORM: two short cues.\nAVOID: the single most common mistake.' +
+    (ex.note ? `\nWork this session note in naturally: "${ex.note}".` : ''),
+    { maxTokens: 400 })
+    .then(text => {
+      cache[key] = text.trim();
+      try { localStorage.setItem('trainer_ex_guides', JSON.stringify(cache)); } catch {}
+      render(cache[key]);
+    })
+    .catch(e => render('⚠️ ' + e.message));
+}
+
 /* ---------------- Workout player ---------------- */
 function player(session, week) {
   history.pushState({ tab: localStorage.getItem('trainer_tab') || 'today', player: true }, '');
@@ -1054,7 +1091,8 @@ function player(session, week) {
       card.append(el('div', { style: 'margin:10px 0 4px' },
         el('div', { class: 'row' },
           exerciseAnim(ex.name, 2.6),
-          el('b', { class: 'grow' }, ex.name),
+          el('b', { class: 'grow' }, ex.name,
+            el('button', { class: 'howto', onclick: () => exerciseHowSheet(ex) }, 'how?')),
           el('span', { class: 'muted' }, ex.reps ? `${sets}×${ex.reps}` : '')),
         el('p', { class: 'muted', style: 'font-size:13px' },
           [ex.equipment, ex.note].filter(Boolean).join(' · ')),

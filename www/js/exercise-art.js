@@ -338,33 +338,51 @@ const KEYWORDS = [
   [/bridge|hinge|deadlift/i, 'squat'],
 ];
 
+/* EPX/Scale2x: the classic pixel-art upscaler — doubles resolution while
+   smoothing diagonals, so every sprite gains real detail without redrawing.
+   Applied twice (Scale4x): 16×14 → 64×56 internal pixels at the same size. */
+function scale2x(rows) {
+  const H = rows.length, W = rows[0].length;
+  const g = (x, y) => (y >= 0 && y < H && x >= 0 && x < W) ? rows[y][x] : '.';
+  const out = Array.from({ length: H * 2 }, () => Array(W * 2).fill('.'));
+  for (let y = 0; y < H; y++) {
+    for (let x = 0; x < W; x++) {
+      const P = g(x, y), A = g(x, y - 1), B = g(x + 1, y), C = g(x - 1, y), D = g(x, y + 1);
+      let e0 = P, e1 = P, e2 = P, e3 = P;
+      if (C === A && C !== D && A !== B) e0 = A;
+      if (A === B && A !== C && B !== D) e1 = B;
+      if (D === C && D !== B && C !== A) e2 = C;
+      if (B === D && B !== A && D !== C) e3 = B;
+      out[y * 2][x * 2] = e0; out[y * 2][x * 2 + 1] = e1;
+      out[y * 2 + 1][x * 2] = e2; out[y * 2 + 1][x * 2 + 1] = e3;
+    }
+  }
+  return out.map(r => r.join(''));
+}
+const SCALED = {}; // sprite key -> two Scale4x'd frames
+
 export function exerciseAnim(name, px = 3) {
   const key = (KEYWORDS.find(([re]) => re.test(name || '')) || [null, 'generic'])[1];
-  const frames = SPRITES[key];
-  const w = 16, h = 14;
-  const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
-  svg.setAttribute('viewBox', `0 0 ${w} ${h}`);
-  svg.setAttribute('width', w * px);
-  svg.setAttribute('height', h * px);
-  svg.setAttribute('class', 'ex-px');
-  svg.setAttribute('aria-hidden', 'true');
+  const frames = (SCALED[key] ||= SPRITES[key].map(rows => scale2x(scale2x(rows))));
+  const wrap = document.createElement('div');
+  wrap.className = 'ex-px';
+  wrap.style.width = 16 * px + 'px';
+  wrap.style.height = 14 * px + 'px';
+  wrap.setAttribute('aria-hidden', 'true');
   frames.forEach((rows, i) => {
-    const g = document.createElementNS('http://www.w3.org/2000/svg', 'g');
-    g.setAttribute('class', 'exf exf-' + (i + 1));
+    const c = document.createElement('canvas');
+    c.width = 64; c.height = 56;
+    c.className = 'exf exf-' + (i + 1);
+    const ctx = c.getContext('2d');
     rows.forEach((row, y) => {
-      if (row.length !== w) { console.error('sprite', key, 'frame', i, 'row', y, 'len', row.length); return; }
-      [...row].forEach((ch, x) => {
-        if (ch === '.') return;
-        const color = PAL[ch];
-        if (!color) return;
-        const r = document.createElementNS('http://www.w3.org/2000/svg', 'rect');
-        r.setAttribute('x', x); r.setAttribute('y', y);
-        r.setAttribute('width', 1.06); r.setAttribute('height', 1.06);
-        r.setAttribute('fill', color);
-        g.appendChild(r);
-      });
+      for (let x = 0; x < row.length; x++) {
+        const color = PAL[row[x]];
+        if (!color) continue;
+        ctx.fillStyle = color;
+        ctx.fillRect(x, y, 1, 1);
+      }
     });
-    svg.appendChild(g);
+    wrap.append(c);
   });
-  return svg;
+  return wrap;
 }

@@ -201,7 +201,8 @@ body {
 .hey-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* --- animated exercise sprites (two-frame pixel loops) --- */
-.ex-px { image-rendering: pixelated; flex: none; }
+.ex-px { image-rendering: pixelated; flex: none; position: relative; }
+.ex-px canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
 .ex-px .exf-1 { animation: exf-a 1.1s steps(1) infinite; }
 .ex-px .exf-2 { animation: exf-b 1.1s steps(1) infinite; }
 @keyframes exf-a { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }
