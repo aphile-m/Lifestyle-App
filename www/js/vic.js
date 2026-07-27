@@ -92,6 +92,25 @@ async function buildContext() {
     lines.push(`Weight entries last 28d: ${weights.length}, latest ${latest.kg} kg.`);
   }
   lines.push(`Workouts logged last 7d: ${workouts.length}.`);
+  // strength memory: newest set data per exercise so load/effort advice is grounded
+  const lifts = await logs.recent('workouts', 28);
+  lifts.sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
+  const seen = {};
+  for (const w of lifts) {
+    for (const e of (w.detail?.sets || [])) {
+      const k = e.name?.toLowerCase();
+      if (!k || seen[k]) continue;
+      const sets = (e.sets || []).filter(Boolean);
+      if (!sets.length) continue;
+      seen[k] = `${e.name}: ` + sets.map(s =>
+        `${s.reps ?? (s.secs ? s.secs + 's' : '?')}${s.kg ? '@' + s.kg + 'kg' : ''}${s.rpe ? ' RPE' + s.rpe : ''}`).join(', ');
+    }
+  }
+  const liftLines = Object.values(seen).slice(0, 12);
+  if (liftLines.length) {
+    lines.push('Latest set data per exercise (reps@kg, RPE 1-10): ' + liftLines.join(' | ') +
+      '. Progression rule: reps hit at RPE <=6.5 -> +2.5 kg next time; RPE >=9 or reps missed -> hold the load.');
+  }
   if (journal.length) {
     const tags = journal.flatMap(j => j.tags || []);
     lines.push(`Journal tags last 7d: ${tags.join(', ') || 'none'}.`);

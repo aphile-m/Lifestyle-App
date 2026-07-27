@@ -15,8 +15,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 46; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '27 Jul 2026, 10:10 SAST';
+const WEB_VERSION = 47; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '27 Jul 2026, 11:12 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -25,9 +25,11 @@ let vicThinking = false; // a reply is in flight — survives leaving the screen
 let onVicUpdate = null; // active screen's refresh hook; must return true if it rendered
 let planJob = null, planJobStart = 0; // in-flight plan generation (singleton)
 let mealJob = null, mealJobStart = 0, mealDraft = null; // in-flight meal-plan draft
+let playerTick = null, screenLock = null; // workout player countdown + wake lock
 
 function go(tab, fromPop = false) {
   if (journeyActive()) { renderJourney(); return; } // sheets saved mid-journey refresh the journey
+  clearPlayerTick(); keepAwake(false); // leaving the workout player stops its timers
   if (!fromPop) {
     // every screen is a history entry so the Android back button navigates
     // instead of closing the app; at the root, back exits as expected
@@ -1073,61 +1075,239 @@ function exerciseHowSheet(ex) {
 }
 
 /* ---------------- Workout player ---------------- */
-function player(session, week) {
-  history.pushState({ tab: localStorage.getItem('trainer_tab') || 'today', player: true }, '');
-  const root = $('#screen');
-  root.replaceChildren();
-  root.append(el('h1', { class: 'h-page' }, session.title),
-    el('p', { class: 'muted', style: 'margin-top:-10px;margin-bottom:14px' },
-      `Week ${week.week} — ${week.theme} · budget ${session.duration_min} min`));
-
-  for (const block of (session.blocks || [])) {
-    const card = el('div', { class: 'card' }, el('h2', {}, `${block.name} · ${block.minutes} min`));
-    for (const ex of (block.exercises || [])) {
-      const sets = Math.max(1, ex.sets || 1);
-      const chips = Array.from({ length: sets }, (_, i) => el('button', {
-        class: 'chip', onclick: e => e.target.classList.toggle('on'),
-      }, `Set ${i + 1}`));
-      card.append(el('div', { style: 'margin:10px 0 4px' },
-        el('div', { class: 'row' },
-          exerciseAnim(ex.name, 2.6),
-          el('b', { class: 'grow' }, ex.name,
-            el('button', { class: 'howto', onclick: () => exerciseHowSheet(ex) }, 'how?')),
-          el('span', { class: 'muted' }, ex.reps ? `${sets}×${ex.reps}` : '')),
-        el('p', { class: 'muted', style: 'font-size:13px' },
-          [ex.equipment, ex.note].filter(Boolean).join(' · ')),
-        el('div', { class: 'chips', style: 'margin-top:6px' }, ...chips,
-          ex.rest_sec ? restButton(ex.rest_sec) : null)));
-    }
-    root.append(card);
-  }
-
-  root.append(el('button', {
-    class: 'btn', style: 'width:100%', onclick: () => finishSheet(session),
-  }, 'Finish session'), el('button', {
-    class: 'btn ghost', style: 'width:100%;margin-top:8px', onclick: () => history.back(),
-  }, 'Back (nothing saved)'));
+/* Guided, one-set-at-a-time flow (Bend-style focus screen): a timed set runs
+   a big countdown, a reps set gets one Done button; rests count down on their
+   own while you confirm what you just did (reps / weight / how hard). Every
+   set lands in the workout log, so Vic remembers the load and recommends the
+   next one. */
+function clearPlayerTick() {
+  if (playerTick) { clearInterval(playerTick); playerTick = null; }
+}
+function keepAwake(on) {
+  if (on) navigator.wakeLock?.request('screen').then(l => { screenLock = l; }).catch(() => {});
+  else { screenLock?.release?.().catch(() => {}); screenLock = null; }
 }
 
-function restButton(sec) {
-  const btn = el('button', { class: 'chip' }, `⏱ Rest ${sec}s`);
-  let timer = null;
-  btn.addEventListener('click', () => {
-    if (timer) { clearInterval(timer); timer = null; btn.textContent = `⏱ Rest ${sec}s`; return; }
-    let left = sec;
-    btn.classList.add('on');
-    timer = setInterval(() => {
-      left -= 1;
-      btn.textContent = `⏱ ${left}s`;
-      if (left <= 0) {
-        clearInterval(timer); timer = null;
-        btn.classList.remove('on');
-        btn.textContent = `⏱ Rest ${sec}s`;
-        beep();
+function parseSetSpec(ex) {
+  const reps = String(ex.reps || '').trim();
+  let m = reps.match(/^(\d+(?:\.\d+)?)\s*(?:min|mins|minutes?)$/i);
+  if (m) return { timed: Math.round(+m[1] * 60), label: reps };
+  m = reps.match(/^(\d+)\s*(?:s|secs?|seconds?)(?:\s*hold)?$/i);
+  if (m) return { timed: +m[1], label: reps };
+  if (/\d\s*(?:km|m)\b/i.test(reps) && !/min/i.test(reps)) return { open: true, label: reps };
+  const n = reps.match(/\d+/);
+  return { reps: n ? +n[0] : null, label: reps ? `${reps} reps` : 'to clean form' };
+}
+
+const exUsesWeight = ex =>
+  /kg|dumbbell|kettlebell|barbell|\bdb\b|\bkb\b|plate|weight|loaded/i.test(ex.equipment || '');
+
+/* Newest logged set data per exercise name — Vic's memory. */
+async function perfIndex() {
+  const ws = await logs.recent('workouts', 90);
+  ws.sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
+  const idx = {};
+  for (const w of ws) {
+    for (const e of (w.detail?.sets || [])) {
+      const k = e.name?.toLowerCase();
+      if (k && !(k in idx) && e.sets?.filter(Boolean).length) idx[k] = { ts: w.ts, sets: e.sets.filter(Boolean) };
+    }
+  }
+  return idx;
+}
+
+/* Deterministic progressive overload with RPE guardrails: hit the reps at
+   RPE ≤6.5 → +2.5 kg; RPE ≥9 or missed reps → hold; otherwise repeat. */
+function vicLoadAdvice(perf, ex) {
+  const eqKg = (ex.equipment || '').match(/(\d+(?:\.\d+)?)\s*kg/i);
+  if (!perf) {
+    return { kg: eqKg ? +eqKg[1] : 0,
+      note: exUsesWeight(ex) ? 'First time logging this — pick a weight that leaves 2 reps in the tank. We build from there.' : null };
+  }
+  const kg = Math.max(0, ...perf.sets.map(s => +s.kg || 0));
+  const rpes = perf.sets.map(s => +s.rpe || 0).filter(Boolean);
+  const rpe = rpes.length ? rpes.reduce((a, b) => a + b, 0) / rpes.length : null;
+  const hit = perf.sets.every(s => !s.target || (s.reps || 0) >= s.target);
+  if (!kg) {
+    if (rpe != null && rpe <= 6 && hit) return { kg: 0, note: `Last time this felt ${Math.round(rpe)}/10 — add a rep or two per set.` };
+    if (rpe != null && rpe >= 9) return { kg: 0, note: `Last time was a ${Math.round(rpe)}/10 grind — same target, cleaner form.` };
+    return { kg: 0, note: 'Match last time. Form first.' };
+  }
+  if (rpe != null && rpe <= 6.5 && hit) return { kg: kg + 2.5, note: `${kg} kg felt ${Math.round(rpe)}/10 last time and you hit the reps — go ${kg + 2.5} kg today.` };
+  if ((rpe != null && rpe >= 9) || !hit) return { kg, note: `Last time was tough${hit ? '' : ' and reps were missed'} — stay at ${kg} kg and own every rep.` };
+  return { kg, note: `${kg} kg again — the day it feels ≤6/10, we move up.` };
+}
+
+const fmtT = s => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
+const fmtNum = v => (v % 1 ? v.toFixed(1) : String(v));
+
+async function player(session, week) {
+  history.pushState({ tab: localStorage.getItem('trainer_tab') || 'today', player: true }, '');
+  keepAwake(true);
+  const perfs = await perfIndex();
+
+  const steps = [], results = [];
+  for (const block of (session.blocks || [])) {
+    for (const ex of (block.exercises || [])) {
+      const sets = Math.max(1, ex.sets || 1);
+      const spec = parseSetSpec(ex);
+      const perf = perfs[(ex.name || '').toLowerCase()] || null;
+      const advice = vicLoadAdvice(perf, ex);
+      const rec = { name: ex.name, sets: [] };
+      results.push(rec);
+      for (let s = 1; s <= sets; s++) {
+        steps.push({ kind: 'set', block, ex, spec, advice, rec, setNo: s, sets });
+        steps.push({ kind: 'rest', sec: ex.rest_sec || 60, block, ex, spec, advice, rec, setNo: s, sets });
       }
+    }
+  }
+  if (!steps.length) { toast('This session has no exercises.'); history.back(); return; }
+  const setSteps = steps.filter(s => s.kind === 'set').length;
+  let i = 0;
+  const root = $('#screen');
+
+  const advance = () => { clearPlayerTick(); i += 1; i < steps.length ? render() : finishSheet(session, week, results); };
+  const stepBack = () => { if (i > 0) { clearPlayerTick(); i -= 1; render(); } };
+  const ctlRow = main => el('div', { class: 'pctl' },
+    el('button', { class: 'pside', onclick: stepBack }, '◀'),
+    main,
+    el('button', { class: 'pside', onclick: advance }, '▶'));
+
+  function stepper(v0, inc) {
+    let v = +v0 || 0;
+    const num = el('b', { class: 'stepnum' }, fmtNum(v));
+    const bump = d => { v = Math.max(0, +(v + d).toFixed(1)); num.textContent = fmtNum(v); };
+    return {
+      elm: el('div', { class: 'stepper' },
+        el('button', { onclick: () => bump(-inc) }, '−'), num,
+        el('button', { onclick: () => bump(inc) }, '+')),
+      value: () => v,
+    };
+  }
+  const labeled = (label, node) => el('div', { class: 'plab' }, el('p', { class: 'muted', style: 'margin-bottom:2px' }, label), node);
+
+  function overview() {
+    const close = sheet(session.title,
+      el('p', { class: 'muted' }, `Week ${week.week} — ${week.theme} · budget ${session.duration_min} min`),
+      ...results.map(r => {
+        const idx = steps.findIndex(s => s.kind === 'set' && s.rec === r);
+        const st = steps[idx];
+        return el('button', {
+          class: 'rowbtn', style: 'display:flex;width:100%;text-align:left;gap:8px;align-items:center',
+          onclick: () => closeThen(close, () => { clearPlayerTick(); i = idx; render(); }),
+        }, el('b', { class: 'grow' }, r.name),
+          el('span', { class: 'muted' }, `${r.sets.filter(Boolean).length}/${st.sets} sets`));
+      }),
+      el('button', { class: 'btn ghost', style: 'width:100%;margin-top:10px', onclick: () => closeThen(close, () => finishSheet(session, week, results)) }, 'Finish session now'));
+  }
+
+  function render() {
+    clearPlayerTick();
+    const st = steps[i];
+    const setsDone = steps.slice(0, i).filter(s => s.kind === 'set').length;
+    root.replaceChildren(
+      el('div', { class: 'prow' },
+        el('button', { class: 'pxbtn', onclick: () => history.back() }, '✕'),
+        el('b', { class: 'grow', style: 'text-align:center' },
+          `${Math.min(setsDone + 1, setSteps)} of ${setSteps}`),
+        el('button', { class: 'pxbtn', onclick: overview }, '☰')),
+      el('div', { class: 'pbar' },
+        el('div', { class: 'pbar-fill', style: `width:${Math.round(setsDone / setSteps * 100)}%` })));
+    st.kind === 'set' ? renderSet(st) : renderRest(st);
+  }
+
+  function renderSet(st) {
+    const { ex, spec } = st;
+    root.append(el('div', { class: 'pfocus' },
+      el('div', { class: 'pring' }, exerciseAnim(ex.name, 7, 165)),
+      el('h2', { class: 'pname' }, ex.name, ' ',
+        el('button', { class: 'howto', onclick: () => exerciseHowSheet(ex) }, 'how?')),
+      el('p', { class: 'muted' },
+        [`Set ${st.setNo} of ${st.sets}`, spec.label, ex.equipment].filter(Boolean).join(' · '))));
+    if (st.setNo === 1 && st.advice?.note) {
+      root.append(el('div', { class: 'card vicnote' },
+        el('p', {}, '💬 ', el('b', {}, 'Vic: '), st.advice.note)));
+    }
+    if (ex.note) root.append(el('p', { class: 'muted center' }, ex.note));
+
+    if (spec.timed) {
+      let left = spec.timed, running = false;
+      const t = el('div', { class: 'ptime' }, fmtT(left));
+      const main = el('button', { class: 'btn pmain' }, '▶ Start');
+      main.onclick = () => {
+        running = !running;
+        main.textContent = running ? '⏸ Pause' : '▶ Resume';
+        clearPlayerTick();
+        if (running) {
+          playerTick = setInterval(() => {
+            left -= 1; t.textContent = fmtT(left);
+            if (left <= 0) { beep(); advance(); }
+          }, 1000);
+        }
+      };
+      root.append(t, ctlRow(main));
+    } else {
+      root.append(el('div', { class: 'ptime' }, spec.reps != null ? `${spec.reps} reps` : (spec.label || 'Go')),
+        ctlRow(el('button', { class: 'btn pmain', onclick: advance }, '✓ Done')));
+    }
+  }
+
+  function renderRest(st) {
+    const { ex, spec, rec } = st;
+    const nxt = steps[i + 1];
+    let left = st.sec;
+    const t = el('div', { class: 'ptime' }, fmtT(left));
+    root.append(el('div', { class: 'pfocus' },
+      el('h2', { class: 'pname' }, 'Rest'), t,
+      el('p', { class: 'muted' }, nxt
+        ? `Next: ${nxt.ex.name}${nxt.ex === ex ? '' : ''} — set ${nxt.setNo} of ${nxt.sets}`
+        : 'Last one done — wrap up below.')));
+
+    const prev = rec.sets[st.setNo - 1];
+    const defReps = prev?.reps ?? rec.sets.filter(Boolean).at(-1)?.reps ?? spec.reps ?? 10;
+    const defKg = prev?.kg ?? rec.sets.filter(Boolean).at(-1)?.kg ?? st.advice?.kg ?? 0;
+    const showReps = !spec.timed && !spec.open;
+    const showKg = exUsesWeight(ex) || defKg > 0;
+    const reps = stepper(defReps, 1);
+    const kg = stepper(defKg, 2.5);
+    let rpe = prev?.rpe ?? 7;
+    const rpeRow = el('div', { class: 'chips', style: 'justify-content:center' },
+      ...Array.from({ length: 10 }, (_, n) => el('button', {
+        class: 'chip' + (n + 1 === rpe ? ' on' : ''),
+        onclick: e => {
+          rpe = n + 1;
+          [...e.target.parentNode.children].forEach(c => c.classList.remove('on'));
+          e.target.classList.add('on');
+        },
+      }, String(n + 1))));
+    root.append(el('div', { class: 'card' },
+      el('h2', {}, `${ex.name} — set ${st.setNo}`),
+      showReps ? labeled('Reps done', reps.elm) : null,
+      showKg ? labeled('Weight (kg)', kg.elm) : null,
+      labeled('How hard was it? (1 easy → 10 max)', rpeRow)));
+
+    const save = () => {
+      rec.sets[st.setNo - 1] = {
+        target: spec.reps ?? null,
+        reps: showReps ? reps.value() : null,
+        secs: spec.timed || null,
+        kg: showKg ? kg.value() : 0,
+        rpe,
+      };
+    };
+    const goOn = () => { clearPlayerTick(); save(); advance(); };
+    root.append(el('div', { class: 'pctl' },
+      el('button', { class: 'pside', onclick: stepBack }, '◀'),
+      el('button', { class: 'btn pmain', onclick: goOn }, 'Skip rest'),
+      el('button', { class: 'pside', onclick: goOn }, '▶')));
+
+    playerTick = setInterval(() => {
+      left -= 1; t.textContent = fmtT(left);
+      if (left <= 0) { beep(); goOn(); }
     }, 1000);
-  });
-  return btn;
+  }
+
+  render();
 }
 
 function beep() {
@@ -1141,24 +1321,35 @@ function beep() {
   if (navigator.vibrate) navigator.vibrate(200);
 }
 
-function finishSheet(session) {
-  const rpe = ratingRow10();
-  const close = sheet('How hard was that?',
+function finishSheet(session, week, results = []) {
+  clearPlayerTick();
+  const done = results.filter(r => r.sets?.filter(Boolean).length)
+    .map(r => ({ name: r.name, sets: r.sets.filter(Boolean) }));
+  const rpes = done.flatMap(r => r.sets).map(s => s.rpe).filter(Boolean);
+  const avg = rpes.length ? Math.round(rpes.reduce((a, b) => a + b, 0) / rpes.length) : 6;
+  const rpe = ratingRow10(avg);
+  const close = sheet('How was the whole session?',
+    done.length ? el('p', { class: 'muted' },
+      done.map(r => `${r.name} · ${r.sets.length} set${r.sets.length === 1 ? '' : 's'}`).join('  ·  ')) : null,
     rpe.row,
     el('button', {
       class: 'btn', style: 'margin-top:12px', onclick: async () => {
-        await logs.add('workouts', { desc: session.title, rpe: rpe.value(), planned: true, detail: { type: session.type } });
-        close(); toast('Session logged. Vic sees it.');
+        await logs.add('workouts', {
+          desc: session.title, rpe: rpe.value(), planned: true,
+          detail: { type: session.type, week: week?.week, sets: done },
+        });
+        keepAwake(false);
+        close(); toast('Session logged. Vic remembers the numbers.');
         trySync();
         go('today');
       },
     }, 'Save session'));
 }
 
-function ratingRow10() {
-  let val = 6;
+function ratingRow10(def = 6) {
+  let val = def;
   const btns = Array.from({ length: 10 }, (_, i) => i + 1).map(n => el('button', {
-    class: 'chip' + (n === 6 ? ' on' : ''),
+    class: 'chip' + (n === def ? ' on' : ''),
     onclick: e => {
       val = n;
       [...e.target.parentNode.children].forEach(c => c.classList.remove('on'));

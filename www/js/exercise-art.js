@@ -371,12 +371,15 @@ fetch('img/ex-meta.json')
   .then(m => { EX_META = m; })
   .catch(() => {});
 
-export function exerciseAnim(name, px = 3) {
+export function exerciseAnim(name, px = 3, fit = null) {
+  // fit: largest dimension in CSS px — sizes any frame aspect to fill a
+  // fixed slot (the player's focus ring) instead of a fixed height.
   const key = (KEYWORDS.find(([re]) => re.test(name || '')) || [null, 'generic'])[1];
-  const h = Math.round(14 * px);
   const m = EX_META?.[key];
   if (m) {
-    const w = Math.round(h * m.fw / m.fh);
+    const ratio = m.fw / m.fh;
+    const h = fit ? Math.round(fit / Math.max(1, ratio)) : Math.round(14 * px);
+    const w = Math.round(h * ratio);
     const wrap = document.createElement('div');
     wrap.className = 'ex-strip-wrap';
     wrap.style.width = w + 'px';
