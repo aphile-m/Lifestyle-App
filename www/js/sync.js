@@ -103,6 +103,7 @@ export async function restGet(table, query = '') {
 export const restUpsert = (table, rows, onConflict) =>
   rest('POST', table + (onConflict ? `?on_conflict=${onConflict}` : ''), rows);
 export const restPatch = (table, query, patch) => rest('PATCH', table, patch, `?${query}`);
+export const restDelete = (table, query) => rest('DELETE', table, null, `?${query}`);
 
 /* ---------- mappers: IndexedDB store <-> table rows ---------- */
 const day = ts => ts.slice(0, 10);
@@ -113,7 +114,7 @@ const MAP = {
     down: t => ({ ts: t.ts, kg: Number(t.kg) }),
   },
   foods: {
-    table: 'trainer_food_logs',
+    table: 'trainer_food_logs', conflict: 'user_id,ts', // rows are editable in place
     up: r => ({ ts: r.ts, description: r.desc, source: r.source || 'manual', kcal: r.kcal ?? null, protein_g: r.protein ?? null, carbs_g: r.carbs ?? null, fat_g: r.fat ?? null, recipe_id: r.recipeId ?? null, servings: r.servings ?? 1 }),
     down: t => ({ ts: t.ts, desc: t.description, source: t.source, kcal: t.kcal, protein: t.protein_g, carbs: t.carbs_g, fat: t.fat_g, recipeId: t.recipe_id }),
   },

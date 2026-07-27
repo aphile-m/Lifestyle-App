@@ -257,3 +257,8 @@ body {
 .center { text-align: center; }
 .vicnote { border-left: 3px solid var(--accent); }
 .rowbtn { background: none; border: none; color: var(--ink); font: inherit; padding: 10px 2px; border-bottom: 1px solid var(--line); }
+
+/* tappable rows in the Logged meals card */
+.mealrow { display: block; width: 100%; text-align: left; background: none; border: none;
+  color: var(--ink-dim); font: inherit; font-size: 13.5px; padding: 4px 0 4px 10px; border-radius: 8px; }
+.mealrow:active { background: var(--card-2); }

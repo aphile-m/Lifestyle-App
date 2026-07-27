@@ -77,6 +77,9 @@ export const logs = {
   put(store, row) { // update an existing row (must include its id)
     return tx(store, 'readwrite', os => os.put(row));
   },
+  del(store, id) {
+    return tx(store, 'readwrite', os => os.delete(id));
+  },
   all(store) {
     return tx(store, 'readonly', os => os.getAll()).then(r => r || []);
   },

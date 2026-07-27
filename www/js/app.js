@@ -5,7 +5,7 @@ import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, scoreDetail, trendWeight, energyTargets, WEIGHTS } from './score.js';
 import { askVic, vicBriefing, claude } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
-import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, restUpsert, restPatch, restGet } from './sync.js';
+import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, restUpsert, restPatch, restGet, restDelete } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto, estimateMealFromText } from './fuel.js';
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities, stravaLastImport } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney, completeJourney } from './onboarding.js';
@@ -15,8 +15,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 47; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '27 Jul 2026, 11:12 SAST';
+const WEB_VERSION = 48; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '27 Jul 2026, 11:18 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -1436,9 +1436,11 @@ async function fuel(root) {
           (targets && kcal ? ` of ~${targets.target}` : '') +
           (prot ? ` · ${Math.round(prot)}g protein` : ''))));
       for (const f of meals) {
-        mealsCard.append(el('p', { class: 'muted', style: 'margin:2px 0 2px 10px;font-size:13.5px' },
-          `${f.source === 'photo' ? '📷' : f.source === 'cookbook' ? '🍲' : '📝'} ${f.desc}` +
-          (f.kcal ? ` · ${f.kcal} kcal (P${f.protein ?? '–'}/C${f.carbs ?? '–'}/F${f.fat ?? '–'})` : ' · no estimate')));
+        mealsCard.append(el('button', {
+          class: 'mealrow', onclick: () => mealDetailSheet(f),
+        }, `${f.source === 'photo' ? '📷' : f.source === 'cookbook' ? '🍲' : '📝'} ${f.desc}` +
+          (f.kcal ? ` · ${f.kcal} kcal (P${f.protein ?? '–'}/C${f.carbs ?? '–'}/F${f.fat ?? '–'})`
+            : f.estimating ? ' · estimating…' : ' · no estimate — tap to fix')));
       }
     }
   }
@@ -1643,6 +1645,82 @@ function logWeightSheet() {
   input.focus();
 }
 
+/* Tap a logged meal: see it, edit it, re-run the AI estimate, or remove it. */
+function mealDetailSheet(f) {
+  const descIn = el('input', { value: f.desc || '' });
+  const nums = {};
+  const numField2 = (key, label) => {
+    nums[key] = el('input', { type: 'number', inputmode: 'numeric', value: f[key] ?? '' });
+    return el('div', { class: 'field', style: 'flex:1;margin-bottom:8px' }, el('label', {}, label), nums[key]);
+  };
+  const status = el('p', { class: 'muted', style: 'font-size:13px;margin-top:6px' },
+    `${f.source === 'photo' ? '📷 Photo log' : f.source === 'cookbook' ? '🍲 Cookbook serving' : '📝 Manual log'} · ` +
+    new Date(f.ts).toLocaleString([], { weekday: 'short', hour: '2-digit', minute: '2-digit' }));
+  const aiBtn = el('button', { class: 'chip' }, '✨ AI nutrition');
+  aiBtn.onclick = async () => {
+    if (!settings.apiKey) { apiKeySheet(); return; }
+    const d = descIn.value.trim();
+    if (!d) return toast('Describe the meal first.');
+    aiBtn.disabled = true; aiBtn.textContent = 'Estimating…';
+    try {
+      const est = await estimateMealFromText(d);
+      nums.kcal.value = est.kcal ?? '';
+      nums.protein.value = est.protein_g ?? '';
+      nums.carbs.value = est.carbs_g ?? '';
+      nums.fat.value = est.fat_g ?? '';
+      status.textContent = `AI estimate filled in (confidence ${est.confidence}) — tweak anything, then Save.`;
+    } catch (e) { status.textContent = '⚠️ ' + e.message; }
+    aiBtn.disabled = false; aiBtn.textContent = '✨ AI nutrition';
+  };
+  const close = sheet('Meal',
+    el('div', { class: 'field' }, el('label', {}, 'What was it?'), descIn),
+    el('div', { class: 'row', style: 'gap:8px' }, numField2('kcal', 'kcal'), numField2('protein', 'Protein g')),
+    el('div', { class: 'row', style: 'gap:8px' }, numField2('carbs', 'Carbs g'), numField2('fat', 'Fat g')),
+    status,
+    el('div', { class: 'chips', style: 'margin-top:10px' },
+      el('button', {
+        class: 'btn', onclick: async () => {
+          const num = i => { const v = parseFloat(i.value); return Number.isFinite(v) ? Math.round(v) : null; };
+          await logs.put('foods', {
+            ...f, desc: descIn.value.trim() || f.desc,
+            kcal: num(nums.kcal), protein: num(nums.protein), carbs: num(nums.carbs), fat: num(nums.fat),
+            estimating: false, synced: false,
+          });
+          close(); toast('Meal updated.'); trySync(); goCurrent('fuel');
+        },
+      }, 'Save'),
+      aiBtn,
+      el('button', {
+        class: 'chip', onclick: async () => {
+          await logs.del('foods', f.id);
+          if (signedIn()) { try { await restDelete('trainer_food_logs', 'ts=eq.' + encodeURIComponent(f.ts)); } catch {} }
+          close(); toast('Meal removed.'); goCurrent('fuel');
+        },
+      }, '🗑 Remove')));
+}
+
+/* Fire-and-forget: estimate a just-logged meal in the background and update
+   the row — quick logging stays instant, nutrition lands seconds later. */
+async function autoEstimateMeal(id) {
+  if (!settings.apiKey) return;
+  try {
+    const row = (await logs.all('foods')).find(r => r.id === id);
+    if (!row || row.kcal) return;
+    const est = await estimateMealFromText(row.desc);
+    await logs.put('foods', {
+      ...row, kcal: est.kcal ?? null, protein: est.protein_g ?? null,
+      carbs: est.carbs_g ?? null, fat: est.fat_g ?? null, estimating: false, synced: false,
+    });
+    toast(`🍽 ${row.desc.slice(0, 26)}${row.desc.length > 26 ? '…' : ''}: ~${est.kcal} kcal`);
+    trySync();
+    // repaint if the user is looking at the list (never under an open sheet)
+    if (localStorage.getItem('trainer_tab') === 'fuel' && !document.querySelector('.sheet')) go('fuel');
+  } catch {
+    const row = (await logs.all('foods')).find(r => r.id === id);
+    if (row) await logs.put('foods', { ...row, estimating: false });
+  }
+}
+
 function logMealSheet() {
   const input = el('input', { placeholder: 'e.g. chicken stir-fry with rice, large plate' });
   const status = el('p', { class: 'muted', style: 'margin-top:8px;font-size:13px' },
@@ -1673,10 +1751,13 @@ function logMealSheet() {
       el('button', {
         class: 'chip', onclick: async () => {
           if (!input.value.trim()) return toast('Say what it was.');
-          await logs.add('foods', { desc: input.value.trim(), source });
-          close(); toast('Meal logged (no estimate).'); trySync(); goCurrent('today');
+          const id = await logs.add('foods', { desc: input.value.trim(), source, estimating: !!settings.apiKey });
+          close();
+          toast(settings.apiKey ? 'Logged — estimating nutrition in the background…' : 'Meal logged (no estimate).');
+          trySync(); goCurrent('today');
+          autoEstimateMeal(id);
         },
-      }, 'Log without estimate')));
+      }, 'Quick log')));
   input.focus();
 }
 

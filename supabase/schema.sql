@@ -34,6 +34,8 @@ create table if not exists trainer_food_logs (
   kcal        int, protein_g int, carbs_g int, fat_g int,
   servings    numeric(4,2) default 1
 );
+-- rows are editable in place from the app (upserts on user_id+ts)
+create unique index if not exists trainer_food_logs_user_ts on trainer_food_logs (user_id, ts);
 
 create table if not exists trainer_workouts (
   id          uuid primary key default gen_random_uuid(),
