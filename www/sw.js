@@ -1,5 +1,5 @@
 /* Trainer App service worker — cache-first shell, network-first for everything else */
-const CACHE = 'trainer-v45';
+const CACHE = 'trainer-v46';
 const SHELL = [
   '.', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/app.js', 'js/store.js', 'js/vic.js', 'js/score.js', 'js/ui.js',
