@@ -201,6 +201,14 @@ body {
 .hey-row { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 
 /* --- animated exercise sprites (two-frame pixel loops) --- */
+/* Higgsfield sprite strips: 8-frame filmstrip, translated in steps */
+.ex-strip-wrap { overflow: hidden; position: relative; flex: none; }
+.ex-strip-wrap .ex-strip {
+  display: block; height: 100%; width: 800%; max-width: none;
+  animation: exslide 1.6s steps(8) infinite;
+}
+@keyframes exslide { to { transform: translateX(-100%); } }
+
 .ex-px { image-rendering: pixelated; flex: none; position: relative; }
 .ex-px canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; }
 .ex-px .exf-1 { animation: exf-a 1.1s steps(1) infinite; }

@@ -361,8 +361,39 @@ function scale2x(rows) {
 }
 const SCALED = {}; // sprite key -> two Scale4x'd frames
 
+/* High-quality Street-Fighter-style strips (Higgsfield-generated, 8 frames,
+   www/img/ex-<key>.webp). Meta ships as ex-meta.json; when present the strip
+   replaces the canvas pixel art, which stays as the offline/first-paint
+   fallback. */
+let EX_META = null;
+fetch('img/ex-meta.json')
+  .then(r => (r.ok ? r.json() : null))
+  .then(m => { EX_META = m; })
+  .catch(() => {});
+
 export function exerciseAnim(name, px = 3) {
   const key = (KEYWORDS.find(([re]) => re.test(name || '')) || [null, 'generic'])[1];
+  const h = Math.round(14 * px);
+  const m = EX_META?.[key];
+  if (m) {
+    const w = Math.round(h * m.fw / m.fh);
+    const wrap = document.createElement('div');
+    wrap.className = 'ex-strip-wrap';
+    wrap.style.width = w + 'px';
+    wrap.style.height = h + 'px';
+    wrap.setAttribute('aria-hidden', 'true');
+    const img = document.createElement('img');
+    img.src = `img/ex-${key}.webp`;
+    img.alt = '';
+    img.className = 'ex-strip';
+    img.addEventListener('error', () => wrap.replaceWith(pixelAnim(key, px)), { once: true });
+    wrap.append(img);
+    return wrap;
+  }
+  return pixelAnim(key, px);
+}
+
+function pixelAnim(key, px) {
   const frames = (SCALED[key] ||= SPRITES[key].map(rows => scale2x(scale2x(rows))));
   const wrap = document.createElement('div');
   wrap.className = 'ex-px';

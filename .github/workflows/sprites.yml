@@ -1,0 +1,32 @@
+name: Build exercise sprites
+
+# Downloads the Higgsfield-generated sprite sheets (scripts/sprite-urls.txt),
+# processes them into app-ready animation strips, and commits the results to
+# the branch. Trigger manually after regenerating sheets.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  sprites:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Build strips
+        run: |
+          pip install --quiet pillow numpy
+          python scripts/make_sprites.py
+      - name: Commit results
+        run: |
+          git config user.name "sprite-bot"
+          git config user.email "actions@github.com"
+          git add www/img/ex-*.webp www/img/ex-meta.json
+          git diff --cached --quiet && echo "no changes" && exit 0
+          git commit -m "Exercise sprite strips (generated from Higgsfield sheets)"
+          git push
