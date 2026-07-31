@@ -102,14 +102,16 @@ async function buildContext() {
       if (!k || seen[k]) continue;
       const sets = (e.sets || []).filter(Boolean);
       if (!sets.length) continue;
+      const star = r => Math.min(5, Math.max(1, Math.round(r / 2)));
       seen[k] = `${e.name}: ` + sets.map(s =>
-        `${s.reps ?? (s.secs ? s.secs + 's' : '?')}${s.kg ? '@' + s.kg + 'kg' : ''}${s.rpe ? ' RPE' + s.rpe : ''}`).join(', ');
+        `${s.reps ?? (s.secs ? s.secs + 's' : '?')}${s.kg ? '@' + s.kg + 'kg' : ''}${s.rpe ? ' effort ' + star(s.rpe) + '/5' : ''}`).join(', ');
     }
   }
   const liftLines = Object.values(seen).slice(0, 12);
   if (liftLines.length) {
-    lines.push('Latest set data per exercise (reps@kg, RPE 1-10): ' + liftLines.join(' | ') +
-      '. Progression rule: reps hit at RPE <=6.5 -> +2.5 kg next time; RPE >=9 or reps missed -> hold the load.');
+    lines.push('Latest set data per exercise (reps@kg, effort in stars /5 — the user rates effort as 1=recovery, 2=comfortable (4+ reps left), 3=working (~2 reps left, the target), 4=hard (1 rep left), 5=max/failed): ' +
+      liftLines.join(' | ') +
+      '. Progression rule: reps hit at effort <=3/5 -> +2.5 kg next time; 5/5 or reps missed -> hold the load. Speak in stars, not RPE.');
   }
   if (journal.length) {
     const tags = journal.flatMap(j => j.tags || []);

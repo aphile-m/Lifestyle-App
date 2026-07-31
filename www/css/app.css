@@ -262,3 +262,10 @@ body {
 .mealrow { display: block; width: 100%; text-align: left; background: none; border: none;
   color: var(--ink-dim); font: inherit; font-size: 13.5px; padding: 4px 0 4px 10px; border-radius: 8px; }
 .mealrow:active { background: var(--card-2); }
+
+/* 5-star effort rating */
+.stars { display: flex; gap: 10px; justify-content: center; }
+.star { background: none; border: none; font-size: 34px; line-height: 1; padding: 2px;
+  color: var(--card-2); -webkit-text-stroke: 1.5px var(--ink-dim); cursor: pointer; }
+.star.on { color: var(--accent); -webkit-text-stroke: 0; }
+.starlab { text-align: center; font-size: 13px; margin-top: 4px; min-height: 2.4em; }

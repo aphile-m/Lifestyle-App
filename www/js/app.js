@@ -15,8 +15,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 48; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '27 Jul 2026, 11:18 SAST';
+const WEB_VERSION = 49; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '31 Jul 2026, 09:35 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -1116,8 +1116,8 @@ async function perfIndex() {
   return idx;
 }
 
-/* Deterministic progressive overload with RPE guardrails: hit the reps at
-   RPE ≤6.5 → +2.5 kg; RPE ≥9 or missed reps → hold; otherwise repeat. */
+/* Deterministic progressive overload with effort guardrails: hit the reps at
+   ≤3 stars (rpe ≤6.5) → +2.5 kg; 5 stars (rpe ≥9) or missed reps → hold. */
 function vicLoadAdvice(perf, ex) {
   const eqKg = (ex.equipment || '').match(/(\d+(?:\.\d+)?)\s*kg/i);
   if (!perf) {
@@ -1129,17 +1129,44 @@ function vicLoadAdvice(perf, ex) {
   const rpe = rpes.length ? rpes.reduce((a, b) => a + b, 0) / rpes.length : null;
   const hit = perf.sets.every(s => !s.target || (s.reps || 0) >= s.target);
   if (!kg) {
-    if (rpe != null && rpe <= 6 && hit) return { kg: 0, note: `Last time this felt ${Math.round(rpe)}/10 — add a rep or two per set.` };
-    if (rpe != null && rpe >= 9) return { kg: 0, note: `Last time was a ${Math.round(rpe)}/10 grind — same target, cleaner form.` };
+    if (rpe != null && rpe <= 6 && hit) return { kg: 0, note: `Last time this was ${starTxt(rpe)} — add a rep or two per set.` };
+    if (rpe != null && rpe >= 9) return { kg: 0, note: `Last time was a ${starTxt(rpe)} grind — same target, cleaner form.` };
     return { kg: 0, note: 'Match last time. Form first.' };
   }
-  if (rpe != null && rpe <= 6.5 && hit) return { kg: kg + 2.5, note: `${kg} kg felt ${Math.round(rpe)}/10 last time and you hit the reps — go ${kg + 2.5} kg today.` };
-  if ((rpe != null && rpe >= 9) || !hit) return { kg, note: `Last time was tough${hit ? '' : ' and reps were missed'} — stay at ${kg} kg and own every rep.` };
-  return { kg, note: `${kg} kg again — the day it feels ≤6/10, we move up.` };
+  if (rpe != null && rpe <= 6.5 && hit) return { kg: kg + 2.5, note: `${kg} kg was ${starTxt(rpe)} last time and you hit the reps — go ${kg + 2.5} kg today.` };
+  if ((rpe != null && rpe >= 9) || !hit) return { kg, note: `Last time was ${starTxt(rpe ?? 9)}${hit ? '' : ' and reps were missed'} — stay at ${kg} kg and own every rep.` };
+  return { kg, note: `${kg} kg again — the day it feels ★★★ or easier, we move up.` };
 }
 
 const fmtT = s => `${Math.floor(Math.max(0, s) / 60)}:${String(Math.max(0, s) % 60).padStart(2, '0')}`;
 const fmtNum = v => (v % 1 ? v.toFixed(1) : String(v));
+
+/* Effort is rated in 5 stars, each with a concrete meaning. Stored rpe stays
+   on the old 1-10 scale (stars × 2) so history and the progression rule keep
+   working across old and new logs. */
+const EFFORT_STARS = [
+  ['Recovery', 'barely worked; warm-up effort, loads left in the tank'],
+  ['Comfortable', 'could have done 4 or more extra reps'],
+  ['Working', 'about 2 reps left in the tank; the sweet spot for most sets'],
+  ['Hard', 'maybe 1 rep left; form was under pressure'],
+  ['Max', 'nothing left; hit the limit or a rep failed'],
+];
+const starsFromRpe = r => Math.min(5, Math.max(1, Math.round((+r || 6) / 2)));
+const starTxt = r => '★'.repeat(starsFromRpe(r));
+
+function starRow(def = 3) {
+  let val = def;
+  const btns = [1, 2, 3, 4, 5].map(() => el('button', { class: 'star' }, '★'));
+  const label = el('p', { class: 'muted starlab' });
+  const paint = () => {
+    btns.forEach((b, idx) => b.classList.toggle('on', idx < val));
+    const [name, desc] = EFFORT_STARS[val - 1];
+    label.textContent = `${name} — ${desc}`;
+  };
+  btns.forEach((b, idx) => b.addEventListener('click', () => { val = idx + 1; paint(); }));
+  paint();
+  return { row: el('div', {}, el('div', { class: 'stars' }, ...btns), label), value: () => val * 2 };
+}
 
 async function player(session, week) {
   history.pushState({ tab: localStorage.getItem('trainer_tab') || 'today', player: true }, '');
@@ -1270,21 +1297,12 @@ async function player(session, week) {
     const showKg = exUsesWeight(ex) || defKg > 0;
     const reps = stepper(defReps, 1);
     const kg = stepper(defKg, 2.5);
-    let rpe = prev?.rpe ?? 7;
-    const rpeRow = el('div', { class: 'chips', style: 'justify-content:center' },
-      ...Array.from({ length: 10 }, (_, n) => el('button', {
-        class: 'chip' + (n + 1 === rpe ? ' on' : ''),
-        onclick: e => {
-          rpe = n + 1;
-          [...e.target.parentNode.children].forEach(c => c.classList.remove('on'));
-          e.target.classList.add('on');
-        },
-      }, String(n + 1))));
+    const effort = starRow(prev?.rpe ? starsFromRpe(prev.rpe) : 3);
     root.append(el('div', { class: 'card' },
       el('h2', {}, `${ex.name} — set ${st.setNo}`),
       showReps ? labeled('Reps done', reps.elm) : null,
       showKg ? labeled('Weight (kg)', kg.elm) : null,
-      labeled('How hard was it? (1 easy → 10 max)', rpeRow)));
+      labeled('How hard was it?', effort.row)));
 
     const save = () => {
       rec.sets[st.setNo - 1] = {
@@ -1292,7 +1310,7 @@ async function player(session, week) {
         reps: showReps ? reps.value() : null,
         secs: spec.timed || null,
         kg: showKg ? kg.value() : 0,
-        rpe,
+        rpe: effort.value(),
       };
     };
     const goOn = () => { clearPlayerTick(); save(); advance(); };
@@ -1326,16 +1344,16 @@ function finishSheet(session, week, results = []) {
   const done = results.filter(r => r.sets?.filter(Boolean).length)
     .map(r => ({ name: r.name, sets: r.sets.filter(Boolean) }));
   const rpes = done.flatMap(r => r.sets).map(s => s.rpe).filter(Boolean);
-  const avg = rpes.length ? Math.round(rpes.reduce((a, b) => a + b, 0) / rpes.length) : 6;
-  const rpe = ratingRow10(avg);
+  const avg = rpes.length ? rpes.reduce((a, b) => a + b, 0) / rpes.length : 6;
+  const effort = starRow(starsFromRpe(avg));
   const close = sheet('How was the whole session?',
     done.length ? el('p', { class: 'muted' },
       done.map(r => `${r.name} · ${r.sets.length} set${r.sets.length === 1 ? '' : 's'}`).join('  ·  ')) : null,
-    rpe.row,
+    effort.row,
     el('button', {
       class: 'btn', style: 'margin-top:12px', onclick: async () => {
         await logs.add('workouts', {
-          desc: session.title, rpe: rpe.value(), planned: true,
+          desc: session.title, rpe: effort.value(), planned: true,
           detail: { type: session.type, week: week?.week, sets: done },
         });
         keepAwake(false);
@@ -1346,18 +1364,6 @@ function finishSheet(session, week, results = []) {
     }, 'Save session'));
 }
 
-function ratingRow10(def = 6) {
-  let val = def;
-  const btns = Array.from({ length: 10 }, (_, i) => i + 1).map(n => el('button', {
-    class: 'chip' + (n === def ? ' on' : ''),
-    onclick: e => {
-      val = n;
-      [...e.target.parentNode.children].forEach(c => c.classList.remove('on'));
-      e.target.classList.add('on');
-    },
-  }, String(n)));
-  return { row: el('div', { class: 'chips' }, ...btns), value: () => val };
-}
 
 /* ---------------- Fuel ---------------- */
 async function fuel(root) {
@@ -1789,14 +1795,14 @@ function confirmMealSheet(desc, source, est) {
 
 function logWorkoutSheet() {
   const input = el('input', { placeholder: 'e.g. Strength A, 5k easy run…' });
-  const rpe = el('input', { type: 'number', min: 1, max: 10, inputmode: 'numeric', placeholder: 'RPE 1–10' });
+  const effort = starRow(3);
   const close = sheet('Log a session',
     el('div', { class: 'field' }, el('label', {}, 'What was it?'), input),
-    el('div', { class: 'field' }, el('label', {}, 'How hard did it feel?'), rpe),
+    el('div', { class: 'field' }, el('label', {}, 'How hard did it feel?'), effort.row),
     el('button', {
       class: 'btn', onclick: async () => {
         if (!input.value.trim()) return toast('Name the session.');
-        await logs.add('workouts', { desc: input.value.trim(), rpe: parseInt(rpe.value) || null });
+        await logs.add('workouts', { desc: input.value.trim(), rpe: effort.value() });
         close(); toast('Session logged. Vic sees it.'); trySync(); goCurrent('today');
       },
     }, 'Save'));

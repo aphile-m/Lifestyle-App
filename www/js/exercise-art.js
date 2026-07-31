@@ -374,26 +374,32 @@ fetch('img/ex-meta.json')
 export function exerciseAnim(name, px = 3, fit = null) {
   // fit: largest dimension in CSS px — sizes any frame aspect to fill a
   // fixed slot (the player's focus ring) instead of a fixed height.
+  // ALWAYS try the Higgsfield strip: when ex-meta.json hasn't arrived yet
+  // (cold start race) the frame aspect comes from the loaded image itself
+  // (8 frames side by side); pixel art only renders if the strip 404s.
   const key = (KEYWORDS.find(([re]) => re.test(name || '')) || [null, 'generic'])[1];
   const m = EX_META?.[key];
-  if (m) {
-    const ratio = m.fw / m.fh;
+  const wrap = document.createElement('div');
+  wrap.className = 'ex-strip-wrap';
+  wrap.setAttribute('aria-hidden', 'true');
+  const img = document.createElement('img');
+  img.src = `img/ex-${key}.webp`;
+  img.alt = '';
+  img.className = 'ex-strip';
+  const size = (fw, fh) => {
+    const ratio = fw / fh;
     const h = fit ? Math.round(fit / Math.max(1, ratio)) : Math.round(14 * px);
-    const w = Math.round(h * ratio);
-    const wrap = document.createElement('div');
-    wrap.className = 'ex-strip-wrap';
-    wrap.style.width = w + 'px';
     wrap.style.height = h + 'px';
-    wrap.setAttribute('aria-hidden', 'true');
-    const img = document.createElement('img');
-    img.src = `img/ex-${key}.webp`;
-    img.alt = '';
-    img.className = 'ex-strip';
-    img.addEventListener('error', () => wrap.replaceWith(pixelAnim(key, px)), { once: true });
-    wrap.append(img);
-    return wrap;
+    wrap.style.width = Math.round(h * ratio) + 'px';
+  };
+  if (m) size(m.fw, m.fh);
+  else {
+    size(1, 1); // provisional square slot until the strip reveals its aspect
+    img.addEventListener('load', () => size(img.naturalWidth / 8, img.naturalHeight), { once: true });
   }
-  return pixelAnim(key, px);
+  img.addEventListener('error', () => wrap.replaceWith(pixelAnim(key, px)), { once: true });
+  wrap.append(img);
+  return wrap;
 }
 
 function pixelAnim(key, px) {
