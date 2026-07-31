@@ -53,11 +53,14 @@ def key_cell(a):
     corners = np.concatenate([a[:8, :8].reshape(-1, 3), a[:8, -8:].reshape(-1, 3),
                               a[-8:, :8].reshape(-1, 3), a[-8:, -8:].reshape(-1, 3)])
     bg = np.median(corners, axis=0)
-    simil = (np.abs(a - bg).max(axis=2) < THRESH)
     border = np.zeros((h, w), bool)
     border[0, :] = border[-1, :] = True
     border[:, 0] = border[:, -1] = True
-    keyed = flood(simil, border)
+    # hysteresis keying: flood a TIGHT core (flat background only), then grow a
+    # 3px fringe at a loose threshold for anti-aliased edges — a loose single
+    # threshold creeps deep into dark clothing on these near-black backgrounds
+    core = flood((np.abs(a - bg).max(axis=2) < 14), border)
+    keyed = core | (dilate(core, 3) & (np.abs(a - bg).max(axis=2) < 40))
     ran2 = False
     if keyed.mean() < 0.5:
         for _ in range(3):
