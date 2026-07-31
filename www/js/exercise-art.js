@@ -326,16 +326,30 @@ const SPRITES = {
 };
 
 const KEYWORDS = [
-  [/squat/i, 'squat'],
+  // specific compounds first — order decides ties ("dumbbell bench press"
+  // must hit the bench, not the overhead press)
+  [/pull[- ]?apart/i, 'pullapart'],
+  [/step[- ]?up/i, 'stepup'],
   [/push[- ]?up|press[- ]?up/i, 'pushup'],
+  [/bench|chest press|floor press|fly|flye/i, 'bench'],
+  [/lateral raise|side raise|delt raise/i, 'latraise'],
+  [/lunge|split squat/i, 'lunge'],
+  [/squat/i, 'squat'],
   [/plank|hold/i, 'plank'],
   [/press|overhead|shoulder/i, 'press'],
   [/curl/i, 'curl'],
   [/row|pull/i, 'row'],
-  [/lunge|split/i, 'lunge'],
+  [/bridge|thrust/i, 'bridge'],
+  [/deadlift|\brdl\b|hinge|good ?morning/i, 'rdl'],
+  [/climber/i, 'climber'],
+  [/burpee/i, 'burpee'],
+  [/crunch|sit[- ]?up|dead ?bug|twist|hollow|leg raise|v[- ]?up/i, 'crunch'],
+  [/superman|back ext/i, 'superman'],
+  [/bird[- ]?dog/i, 'birddog'],
+  [/rollout|swiss|stability ball|\bball\b/i, 'swissball'],
+  [/calf/i, 'calfraise'],
   [/rope|skip|jump/i, 'rope'],
   [/run|jog|walk|treadmill|step|cardio|stride/i, 'run'],
-  [/bridge|hinge|deadlift/i, 'squat'],
 ];
 
 /* EPX/Scale2x: the classic pixel-art upscaler — doubles resolution while
@@ -403,6 +417,7 @@ export function exerciseAnim(name, px = 3, fit = null) {
 }
 
 function pixelAnim(key, px) {
+  if (!SPRITES[key]) key = 'generic'; // newer strip-only keys have no pixel art
   const frames = (SCALED[key] ||= SPRITES[key].map(rows => scale2x(scale2x(rows))));
   const wrap = document.createElement('div');
   wrap.className = 'ex-px';

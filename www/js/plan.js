@@ -61,6 +61,11 @@ Return ONLY valid MINIFIED JSON (no whitespace, no markdown fences), exactly thi
       "blocks":[{"name":"Warm-up","minutes":8,"exercises":[
         {"name":"...","equipment":"...","sets":2,"reps":"10","rest_sec":30,"note":"cue or target"}]}]}]}]}
 dow is ISO day-of-week (1=Mon…7=Sun). reps may be a count, a duration ("40s") or a distance ("2 km").
+Prefer exercises from these movement families (each has an in-app animated demo): goblet squat,
+reverse lunge / split squat, Romanian deadlift, glute bridge, push-up, dumbbell bench press,
+overhead press, lateral raise, biceps curl, bent-over row, band pull-apart, plank, mountain
+climbers, burpee, crunch / sit-up, superman, bird dog, Swiss ball rollout, step-up, calf raise,
+jump rope, running / walking. Variations within a family are fine — keep the family word in the name.
 Keep every "note" under 8 words. The COMPLETE JSON must fit the reply — compact beats chatty.`;
 }
 

@@ -8,3 +8,16 @@ lunge https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_2
 rope https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260727_065608_f2a502a9-64e1-4600-abc6-c60c12f5d904.png
 run https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260727_065617_151ec475-2210-43eb-9a4a-524c3eea1a1d.png
 generic https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260727_065625_77d70fcc-ed7a-4f6f-b230-310f4ea38a93.png
+bridge https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074106_e5a1ae97-0668-4b8a-9ccf-051fa2e58b1a.png
+rdl https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074231_92b4c7d0-2dbd-401b-a68f-23af03c3c744.png
+climber https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074248_03b1bdbb-7f10-48bc-96cf-5b2e9c90162a.png
+burpee https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074300_bd1fd132-bfb4-41fd-8d15-2f267beb791c.png
+crunch https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074316_ea655dd2-9e80-4971-8d54-b323bd5a96d2.png 4x4
+latraise https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074341_ffcba382-0931-4085-b844-2bc77fecf52d.png
+bench https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074353_67f19843-2b9e-4bb8-94ab-e28320c149db.png
+stepup https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074404_b7c5dec8-5592-4377-9271-b5680922a149.png
+calfraise https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074416_4a82e026-fd9b-4fca-a40c-494426ec85bc.png
+pullapart https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074430_b722762b-fc34-4f8a-9456-8ff74f649d9c.png
+birddog https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074449_11ca2905-0429-4074-9ecf-33e8c5ddc3ce.png
+swissball https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074500_d213a77a-2d5b-4b04-9e3f-2acb38332e5a.png
+superman https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074945_93ace84b-6c16-47d6-a62d-0be655a8fcdc.png
