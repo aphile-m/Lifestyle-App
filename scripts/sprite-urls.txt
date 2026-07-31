@@ -18,6 +18,6 @@ bench https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_2
 stepup https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074404_b7c5dec8-5592-4377-9271-b5680922a149.png
 calfraise https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074416_4a82e026-fd9b-4fca-a40c-494426ec85bc.png
 pullapart https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074430_b722762b-fc34-4f8a-9456-8ff74f649d9c.png
-birddog https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074449_11ca2905-0429-4074-9ecf-33e8c5ddc3ce.png
-swissball https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074500_d213a77a-2d5b-4b04-9e3f-2acb38332e5a.png
+birddog https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_084626_e8776ac4-e446-4f0c-a85a-4a4c917350ee.png
+swissball https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_084638_f28696ca-1058-46dc-b90a-d6816c63438c.png
 superman https://d8j0ntlcm91z4.cloudfront.net/user_3GA62485TYRe1yTnS0xRqwArwkw/hf_20260731_074945_93ace84b-6c16-47d6-a62d-0be655a8fcdc.png
