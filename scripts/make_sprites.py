@@ -66,6 +66,11 @@ def key_cell(a):
             if ring.sum() < 50:
                 break
             bg2 = np.median(a[ring], axis=0)
+            # a real card interior differs strongly from the outer background;
+            # on a flat sheet where the figure just fills the cell, the ring
+            # lands on the FIGURE (dark clothing ~ dark bg) — never key that
+            if np.abs(bg2 - bg).max() < 40:
+                break
             uniform = (np.abs(a[ring] - bg2).max(axis=1) < THRESH).mean()
             if uniform < 0.5:
                 break
@@ -85,7 +90,7 @@ def key_cell(a):
     return keyed
 
 
-def process(key, path, cols=4, rows=2):
+def process(key, path, cols=4, rows=2, center=False):
     im = Image.open(path).convert('RGB')
     W, H = im.size
     cw, ch = W // cols, H // rows
@@ -97,11 +102,30 @@ def process(key, path, cols=4, rows=2):
             alpha = np.where(key_cell(cell), 0, 255).astype(np.uint8)
             frames.append(np.dstack([cell.astype(np.uint8), alpha]))
     frames = frames[:8]
+    pad = 6
+    out = os.path.join(OUT, f'ex-{key}.webp')
+    if center:
+        # per-frame bottom-centre alignment: for sheets where the model drew
+        # the figure at different spots per cell (union bbox would make the
+        # animation jump sideways)
+        crops = []
+        for f in frames:
+            ys, xs = np.where(f[:, :, 3] > 0)
+            crops.append(f[ys.min():ys.max() + 1, xs.min():xs.max() + 1] if len(ys) else f)
+        fh = max(c.shape[0] for c in crops) + pad * 2
+        fw = max(c.shape[1] for c in crops) + pad * 2
+        tw = round(fw * TARGET_H / fh)
+        strip = Image.new('RGBA', (tw * len(crops), TARGET_H), (0, 0, 0, 0))
+        for i, c in enumerate(crops):
+            cell = Image.new('RGBA', (fw, fh), (0, 0, 0, 0))
+            cell.paste(Image.fromarray(c), ((fw - c.shape[1]) // 2, fh - pad - c.shape[0]))
+            strip.paste(cell.resize((tw, TARGET_H), Image.LANCZOS), (i * tw, 0))
+        strip.save(out, 'WEBP', quality=86, method=6)
+        return {'fw': tw, 'fh': TARGET_H}
     boxes = []
     for f in frames:
         ys, xs = np.where(f[:, :, 3] > 0)
         boxes.append((ys.min(), xs.min(), ys.max() + 1, xs.max() + 1) if len(ys) else (0, 0, ch, cw))
-    pad = 6
     y0 = max(0, min(b[0] for b in boxes) - pad); x0 = max(0, min(b[1] for b in boxes) - pad)
     y1 = min(ch, max(b[2] for b in boxes) + pad); x1 = min(cw, max(b[3] for b in boxes) + pad)
     fh, fw = y1 - y0, x1 - x0
@@ -110,7 +134,6 @@ def process(key, path, cols=4, rows=2):
     for i, f in enumerate(frames):
         cell = Image.fromarray(f[y0:y1, x0:x1]).resize((tw, TARGET_H), Image.LANCZOS)
         strip.paste(cell, (i * tw, 0))
-    out = os.path.join(OUT, f'ex-{key}.webp')
     strip.save(out, 'WEBP', quality=86, method=6)
     return {'fw': tw, 'fh': TARGET_H}
 
@@ -123,10 +146,15 @@ def main():
                 continue
             parts = line.split()
             key, url = parts[0], parts[1]
-            cols, rows = (int(x) for x in (parts[2] if len(parts) > 2 else '4x2').split('x'))
+            cols, rows, center = 4, 2, False
+            for tok in parts[2:]:
+                if tok == 'center':
+                    center = True
+                elif 'x' in tok:
+                    cols, rows = (int(x) for x in tok.split('x'))
             path = f'/tmp/sheet_{key}.png'
             urllib.request.urlretrieve(url, path)
-            meta[key] = process(key, path, cols, rows)
+            meta[key] = process(key, path, cols, rows, center)
             print(key, meta[key], os.path.getsize(os.path.join(OUT, f'ex-{key}.webp')), 'bytes')
     with open(os.path.join(OUT, 'ex-meta.json'), 'w') as fh:
         json.dump(meta, fh)
