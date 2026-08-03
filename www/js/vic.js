@@ -157,6 +157,22 @@ export async function vicBriefing(ask, extraContext = '') {
   return claude(ask, { system: personaPrompt(settings.profile, context), maxTokens: 600 });
 }
 
+/* Life got busy: the athlete moves today's session to another day and Vic
+   rearranges the rest of the week around it, keeping the goal in mind. */
+export async function replanWeek(week, session, todayDow, targetDow) {
+  const days = ['', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const text = await vicBriefing(
+    `The athlete can't train today (${days[todayDow]}) and wants today's session "${session.title}" moved to ${days[targetDow]}. ` +
+    `Rearrange the REMAINING days of this training week if it helps recovery and the goal — sessions on days already past stay where they are. ` +
+    `Week ${week.week} (${week.theme}) sessions: ` +
+    JSON.stringify((week.sessions || []).map(s => ({ dow: s.dow, title: s.title, type: s.type }))) + '. ' +
+    `dow is 1=Monday…7=Sunday; today is dow ${todayDow}. Rules: one session per day; keep every exact title; ` +
+    `"${session.title}" MUST land on dow ${targetDow}; avoid back-to-back strength days when you can. ` +
+    `Return ONLY JSON, no prose: {"sessions":[{"title":"<exact title>","dow":N}, …one entry for EVERY session of the week…],` +
+    `"note":"1-2 sentences in your voice: what you moved and why the week still works for the goal"}`);
+  return parseJson(text);
+}
+
 export async function askVic(history, extraContext = '') {
   const apiKey = settings.apiKey;
   if (!apiKey) throw new Error('NO_KEY');

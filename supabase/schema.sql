@@ -102,6 +102,8 @@ create table if not exists trainer_plans (           -- periodised training plan
   start_date  date,
   plan        jsonb not null                         -- weeks[] -> {theme, sessions[] -> WOD blocks}
 );
+-- plans are editable in place from the app (postponed sessions re-upsert)
+create unique index if not exists trainer_plans_user_created on trainer_plans (user_id, created_at);
 
 create table if not exists trainer_measurements (    -- tape measurements, 4-weekly (SPEC §3.4)
   id          uuid primary key default gen_random_uuid(),

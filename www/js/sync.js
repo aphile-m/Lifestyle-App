@@ -149,7 +149,7 @@ const MAP = {
     down: t => ({ ts: t.ts, role: t.role, text: t.text, actions: t.actions }),
   },
   plans: {
-    table: 'trainer_plans', orderBy: 'created_at',
+    table: 'trainer_plans', conflict: 'user_id,created_at', orderBy: 'created_at', // editable in place (postpones)
     up: r => ({ created_at: r.ts, active: !!r.active, month_theme: r.plan?.month_theme || null, start_date: r.plan?.start_date || null, plan: r.plan }),
     down: t => ({ ts: t.created_at, active: t.active, plan: t.plan }),
   },

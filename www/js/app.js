@@ -3,7 +3,7 @@
 import { $, el, esc, scoreRing, sheet, toast } from './ui.js';
 import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, scoreDetail, trendWeight, energyTargets, WEIGHTS } from './score.js';
-import { askVic, vicBriefing, claude } from './vic.js';
+import { askVic, vicBriefing, claude, replanWeek } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
 import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, restUpsert, restPatch, restGet, restDelete } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto, estimateMealFromText } from './fuel.js';
@@ -15,8 +15,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 50; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '31 Jul 2026, 10:21 SAST';
+const WEB_VERSION = 51; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '3 Aug 2026, 14:19 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -240,7 +240,9 @@ async function today(root) {
         el('h2', {}, `Today — week ${t.week.week}: ${t.week.theme}`),
         el('p', { style: 'font-weight:700;font-size:18px' }, t.session.title),
         el('p', { class: 'muted' }, `${t.session.type} · ${t.session.duration_min} min all-in`),
-        el('button', { class: 'btn', style: 'margin-top:10px', onclick: () => player(t.session, t.week) }, 'Start session')));
+        el('div', { class: 'chips', style: 'margin-top:10px' },
+          el('button', { class: 'btn', onclick: () => player(t.session, t.week) }, 'Start session'),
+          el('button', { class: 'chip', onclick: () => postponeSheet(plan, t.week, t.session) }, '⏭ Can’t today?'))));
     } else if (t.status === 'rest') {
       root.append(el('div', { class: 'card' },
         el('h2', {}, `Week ${t.week.week}: ${t.week.theme}`),
@@ -978,7 +980,7 @@ async function train(root) {
   }
 
   if (t.status === 'today') {
-    root.append(wodCard(t.week, t.session, true));
+    root.append(wodCard(t.week, t.session, true, plan));
   } else if (t.status === 'rest') {
     root.append(el('div', { class: 'card' },
       el('h2', {}, `Week ${t.week.week} — ${t.week.theme}`),
@@ -1030,14 +1032,88 @@ function rebuildSheet() {
       el('button', { class: 'chip', onclick: () => close() }, 'Keep current plan')));
 }
 
-function wodCard(week, session, startable) {
+function wodCard(week, session, startable, planRow) {
   return el('div', { class: 'card' },
     el('h2', {}, `Today · week ${week.week} — ${week.theme}`),
     el('p', { style: 'font-weight:700;font-size:18px' }, session.title),
     el('p', { class: 'muted' }, `${session.type} · ${session.duration_min} min including warm-up & cool-down`),
     ...(session.blocks || []).map(b => el('p', { class: 'muted', style: 'margin-top:4px' },
       `${b.name} (${b.minutes} min): ${(b.exercises || []).map(x => x.name).join(', ')}`)),
-    startable ? el('button', { class: 'btn', style: 'margin-top:10px', onclick: () => player(session, week) }, 'Start session') : null);
+    startable ? el('div', { class: 'chips', style: 'margin-top:10px' },
+      el('button', { class: 'btn', onclick: () => player(session, week) }, 'Start session'),
+      planRow ? el('button', { class: 'chip', onclick: () => postponeSheet(planRow, week, session) }, '⏭ Can’t today?') : null) : null);
+}
+
+/* Life gets busy: move today's session to the next rest day (or any other
+   day) and let Vic rearrange the rest of the week around the goal. */
+function postponeSheet(planRow, week, session) {
+  const days = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
+  const todayDow = ((new Date().getDay() + 6) % 7) + 1;
+  const byDow = {};
+  for (const s of (week.sessions || [])) byDow[s.dow] = s;
+  const candidates = [];
+  for (let d = todayDow + 1; d <= 7; d++) candidates.push(d);
+  if (!candidates.length) {
+    sheet('Week ends today',
+      el('p', {}, 'No days left this week to move it to. Skip it guilt-free — one missed session never sank a block. Vic folds it into how he writes next week.'));
+    return;
+  }
+  const firstRest = candidates.find(d => !byDow[d]) ?? candidates[0];
+  let target = firstRest;
+  const chips = candidates.map(d => el('button', {
+    class: 'chip' + (d === target ? ' on' : ''),
+    onclick: e => {
+      target = d;
+      [...e.target.parentNode.children].forEach(c => c.classList.remove('on'));
+      e.target.classList.add('on');
+    },
+  }, `${days[d]} · ${byDow[d] ? byDow[d].title : 'rest'}${d === firstRest ? ' ★' : ''}`));
+
+  const apply = async (mapping, note) => {
+    for (const m of (mapping || [])) {
+      const s = (week.sessions || []).find(x => x.title === m.title);
+      if (s && m.dow >= 1 && m.dow <= 7) s.dow = m.dow;
+    }
+    await logs.put('plans', { ...planRow, synced: false });
+    if (note) {
+      chatHistory.push({ role: 'assistant', content: note });
+      await logs.add('chat', { role: 'assistant', text: note });
+    }
+    trySync();
+  };
+  const simpleMove = async () => {
+    const displaced = byDow[target];
+    const mapping = [{ title: session.title, dow: target }];
+    if (displaced && displaced.title !== session.title) mapping.push({ title: displaced.title, dow: session.dow });
+    await apply(mapping, null);
+    close(); toast(`Moved to ${days[target]}${displaced ? ` — ${displaced.title} takes today's slot` : ''}.`);
+    goCurrent('train');
+  };
+  const vicMove = async e => {
+    if (!settings.apiKey) return simpleMove();
+    e.target.disabled = true; e.target.textContent = 'Vic is rearranging…';
+    try {
+      const r = await replanWeek(week, session, todayDow, target);
+      const valid = Array.isArray(r.sessions) && r.sessions.length &&
+        r.sessions.every(m => (week.sessions || []).some(s => s.title === m.title)) &&
+        r.sessions.find(m => m.title === session.title)?.dow === target &&
+        new Set(r.sessions.map(m => m.dow)).size === r.sessions.length;
+      if (!valid) throw new Error('bad replan');
+      await apply(r.sessions, r.note ? `📅 ${r.note}` : null);
+      close(); toast('Week rearranged — Vic explains in the chat.');
+      goCurrent('train');
+    } catch {
+      await simpleMove(); // deterministic fallback still honours the chosen day
+    }
+  };
+  const close = sheet('Can’t train today?',
+    el('p', {}, `Move “${session.title}” to:`),
+    el('div', { class: 'chips', style: 'margin:10px 0' }, ...chips),
+    el('p', { class: 'muted', style: 'font-size:13px' },
+      `★ = next rest day (recommended). Vic will shuffle the remaining days around your pick so the week still serves the goal.`),
+    el('div', { class: 'chips', style: 'margin-top:12px' },
+      el('button', { class: 'btn', onclick: vicMove }, '🥊 Move it — Vic replans the week'),
+      el('button', { class: 'chip', onclick: simpleMove }, 'Just move it')));
 }
 
 /* Any exercise in any plan gets an explainer: Vic writes it once (setup, the
