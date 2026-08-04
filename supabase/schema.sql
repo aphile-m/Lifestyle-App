@@ -48,6 +48,8 @@ create table if not exists trainer_workouts (
   strava_id   bigint,                                -- de-dupe against Strava imports
   detail      jsonb not null default '{}'::jsonb     -- sets/reps/loads or activity stats
 );
+-- rows are editable in place from the app (in-session drafts finalise on save)
+create unique index if not exists trainer_workouts_user_ts on trainer_workouts (user_id, ts);
 
 create table if not exists trainer_checkins (
   id          uuid primary key default gen_random_uuid(),

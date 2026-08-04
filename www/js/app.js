@@ -12,11 +12,11 @@ import { initOnboarding, journeyActive, renderJourney, startJourney, completeJou
 import { hcSupported, hcConnected, hcConnect, hcSync, hcLastSync } from './health.js';
 import { vicAvatar } from './vic-avatar.js';
 import { vicSprite } from './vic-sprite.js';
-import { exerciseAnim } from './exercise-art.js';
+import { exerciseAnim, exerciseKey } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 52; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '4 Aug 2026, 08:48 SAST';
+const WEB_VERSION = 53; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '4 Aug 2026, 08:57 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -1180,17 +1180,31 @@ const exUsesWeight = ex =>
     .test((ex.equipment || '').replace(/body\s?weight/ig, '')); // "bodyweight" is NOT a load
 
 /* Newest logged set data per exercise name — Vic's memory. */
+/* Loose name normalisation: Vic never writes the same title twice the same
+   way, and memory must survive that ("Goblet squats (heavy)" == "goblet squat"). */
+const normEx = n => (n || '').toLowerCase().replace(/[^a-z ]+/g, ' ').replace(/\s+/g, ' ').trim().replace(/s\b/g, '');
+
 async function perfIndex() {
   const ws = await logs.recent('workouts', 90);
   ws.sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
-  const idx = {};
+  const byName = {}, byFamily = {};
   for (const w of ws) {
     for (const e of (w.detail?.sets || [])) {
-      const k = e.name?.toLowerCase();
-      if (k && !(k in idx) && e.sets?.filter(Boolean).length) idx[k] = { ts: w.ts, sets: e.sets.filter(Boolean) };
+      const sets = e.sets?.filter(Boolean);
+      if (!e.name || !sets?.length) continue;
+      const perf = { ts: w.ts, sets };
+      const n = normEx(e.name);
+      if (!(n in byName)) byName[n] = perf;
+      const fam = exerciseKey(e.name);
+      if (fam !== 'generic' && !(fam in byFamily)) byFamily[fam] = perf;
     }
   }
-  return idx;
+  // exact (normalised) title wins; otherwise the newest work in the same
+  // movement family — one home gym rarely has two competing squat variants
+  return ex => {
+    const fam = exerciseKey(ex.name);
+    return byName[normEx(ex.name)] || (fam !== 'generic' ? byFamily[fam] : null) || null;
+  };
 }
 
 /* Deterministic progressive overload with effort guardrails: hit the reps at
@@ -1250,12 +1264,30 @@ async function player(session, week) {
   keepAwake(true);
   const perfs = await perfIndex();
 
+  // set data is written to the workout log AFTER EVERY SET — leaving the
+  // player or losing the app mid-session never loses what was entered
+  let draftId = null, draftTs = new Date().toISOString();
+  const priorDraft = (await logs.recent('workouts', 1)).find(w => w.draft && w.desc === session.title);
+  if (priorDraft) { draftId = priorDraft.id; draftTs = priorDraft.ts; }
+  const persistDraft = async (results) => {
+    const done = results.filter(r => r.sets?.filter(Boolean).length)
+      .map(r => ({ name: r.name, sets: r.sets.filter(Boolean) }));
+    if (!done.length) return;
+    const row = {
+      ts: draftTs, desc: session.title, planned: true, draft: true, synced: false,
+      detail: { type: session.type, week: week?.week, sets: done },
+    };
+    if (draftId == null) draftId = await logs.add('workouts', row);
+    else await logs.put('workouts', { ...row, id: draftId });
+  };
+  const draftRef = () => ({ id: draftId, ts: draftTs });
+
   const steps = [], results = [];
   for (const block of (session.blocks || [])) {
     for (const ex of (block.exercises || [])) {
       const sets = Math.max(1, ex.sets || 1);
       const spec = parseSetSpec(ex);
-      const perf = perfs[(ex.name || '').toLowerCase()] || null;
+      const perf = perfs(ex);
       const advice = vicLoadAdvice(perf, ex);
       const rec = { name: ex.name, sets: [] };
       results.push(rec);
@@ -1270,7 +1302,7 @@ async function player(session, week) {
   let i = 0;
   const root = $('#screen');
 
-  const advance = () => { clearPlayerTick(); i += 1; i < steps.length ? render() : finishSheet(session, week, results); };
+  const advance = () => { clearPlayerTick(); i += 1; i < steps.length ? render() : finishSheet(session, week, results, draftRef()); };
   const stepBack = () => { if (i > 0) { clearPlayerTick(); i -= 1; render(); } };
   const ctlRow = main => el('div', { class: 'pctl' },
     el('button', { class: 'pside', onclick: stepBack }, '◀'),
@@ -1302,7 +1334,7 @@ async function player(session, week) {
         }, el('b', { class: 'grow' }, r.name),
           el('span', { class: 'muted' }, `${r.sets.filter(Boolean).length}/${st.sets} sets`));
       }),
-      el('button', { class: 'btn ghost', style: 'width:100%;margin-top:10px', onclick: () => closeThen(close, () => finishSheet(session, week, results)) }, 'Finish session now'));
+      el('button', { class: 'btn ghost', style: 'width:100%;margin-top:10px', onclick: () => closeThen(close, () => finishSheet(session, week, results, draftRef())) }, 'Finish session now'));
   }
 
   function render() {
@@ -1390,7 +1422,7 @@ async function player(session, week) {
         rpe: effort.value(),
       };
     };
-    const goOn = () => { clearPlayerTick(); save(); advance(); };
+    const goOn = () => { clearPlayerTick(); save(); persistDraft(results); advance(); };
     root.append(el('div', { class: 'pctl' },
       el('button', { class: 'pside', onclick: stepBack }, '◀'),
       el('button', { class: 'btn pmain', onclick: goOn }, 'Skip rest'),
@@ -1416,7 +1448,7 @@ function beep() {
   if (navigator.vibrate) navigator.vibrate(200);
 }
 
-function finishSheet(session, week, results = []) {
+function finishSheet(session, week, results = [], draft = null) {
   clearPlayerTick();
   const done = results.filter(r => r.sets?.filter(Boolean).length)
     .map(r => ({ name: r.name, sets: r.sets.filter(Boolean) }));
@@ -1429,10 +1461,13 @@ function finishSheet(session, week, results = []) {
     effort.row,
     el('button', {
       class: 'btn', style: 'margin-top:12px', onclick: async () => {
-        await logs.add('workouts', {
-          desc: session.title, rpe: effort.value(), planned: true,
+        const row = {
+          desc: session.title, rpe: effort.value(), planned: true, synced: false,
           detail: { type: session.type, week: week?.week, sets: done },
-        });
+        };
+        // finalise the in-progress draft row instead of adding a second one
+        if (draft?.id != null) await logs.put('workouts', { ...row, id: draft.id, ts: draft.ts, draft: false });
+        else await logs.add('workouts', row);
         keepAwake(false);
         close(); toast('Session logged. Vic remembers the numbers.');
         trySync();

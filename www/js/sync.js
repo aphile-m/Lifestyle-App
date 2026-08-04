@@ -119,7 +119,7 @@ const MAP = {
     down: t => ({ ts: t.ts, desc: t.description, source: t.source, kcal: t.kcal, protein: t.protein_g, carbs: t.carbs_g, fat: t.fat_g, recipeId: t.recipe_id }),
   },
   workouts: {
-    table: 'trainer_workouts',
+    table: 'trainer_workouts', conflict: 'user_id,ts', // editable in place (draft rows finalise)
     up: r => ({ ts: r.ts, description: r.desc, rpe: r.rpe ?? null, planned: !!r.planned, detail: r.detail || {}, strava_id: r.stravaId ?? null }),
     down: t => ({ ts: t.ts, desc: t.description, rpe: t.rpe, planned: t.planned, detail: t.detail, stravaId: t.strava_id }),
   },

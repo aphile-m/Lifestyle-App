@@ -388,13 +388,20 @@ fetch('img/ex-meta.json')
   .then(m => { EX_META = m; })
   .catch(() => {});
 
+/* Canonical movement-family key for an exercise name — shared by the art
+   lookup and the workout-memory matcher, so "Goblet squats 3x10" and
+   "Goblet squat" land in the same family. */
+export function exerciseKey(name) {
+  return (KEYWORDS.find(([re]) => re.test(name || '')) || [null, 'generic'])[1];
+}
+
 export function exerciseAnim(name, px = 3, fit = null) {
   // fit: largest dimension in CSS px — sizes any frame aspect to fill a
   // fixed slot (the player's focus ring) instead of a fixed height.
   // ALWAYS try the Higgsfield strip: when ex-meta.json hasn't arrived yet
   // (cold start race) the frame aspect comes from the loaded image itself
   // (8 frames side by side); pixel art only renders if the strip 404s.
-  const key = (KEYWORDS.find(([re]) => re.test(name || '')) || [null, 'generic'])[1];
+  const key = exerciseKey(name);
   const m = EX_META?.[key];
   const wrap = document.createElement('div');
   wrap.className = 'ex-strip-wrap';
