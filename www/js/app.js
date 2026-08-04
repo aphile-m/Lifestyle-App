@@ -15,8 +15,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 51; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '3 Aug 2026, 14:19 SAST';
+const WEB_VERSION = 52; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '4 Aug 2026, 08:48 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -1176,7 +1176,8 @@ function parseSetSpec(ex) {
 }
 
 const exUsesWeight = ex =>
-  /kg|dumbbell|kettlebell|barbell|\bdb\b|\bkb\b|plate|weight|loaded/i.test(ex.equipment || '');
+  /kg|dumbbell|kettlebell|barbell|\bdb\b|\bkb\b|plate|loaded|weight/i
+    .test((ex.equipment || '').replace(/body\s?weight/ig, '')); // "bodyweight" is NOT a load
 
 /* Newest logged set data per exercise name — Vic's memory. */
 async function perfIndex() {

@@ -65,7 +65,8 @@ Prefer exercises from these movement families (each has an in-app animated demo)
 reverse lunge / split squat, Romanian deadlift, glute bridge, push-up, dumbbell bench press,
 overhead press, lateral raise, biceps curl, bent-over row, band pull-apart, plank, mountain
 climbers, burpee, crunch / sit-up, superman, bird dog, Swiss ball rollout, step-up, calf raise,
-jump rope, running / walking. Variations within a family are fine — keep the family word in the name.
+jump rope, running / walking, march in place / high knees, jumping jacks, arm circles.
+Variations within a family are fine — keep the family word in the name.
 Keep every "note" under 8 words. The COMPLETE JSON must fit the reply — compact beats chatty.`;
 }
 
