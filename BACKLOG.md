@@ -46,7 +46,27 @@ each item implements.
 - [ ] **Spotify workout playlists** — matched to session type (SPEC §4.3).
 - [ ] **Baseline deviation flags** — multi-day RHR/sleep deviations with coach
       follow-through (SPEC §6).
-- [ ] **Android APK** — Capacitor build + Capgo OTA release pipeline (cookbook pattern).
+- [x] **Android APK** — shipped (android-v5). OTA pipeline unnecessary: the shell loads
+      the live site, so web ships land on next open.
+- [ ] **Notifications & wake-up alarm** — wake-up time alarm, an evening reminder to
+      log the day (check-in, meals, supplements), and a prep-for-tomorrow nudge
+      (session preview, kit out, meals planned). Set during the setup journey and
+      editable in Me → Settings. Android: Capacitor local-notifications (exact alarms
+      need the SCHEDULE_EXACT_ALARM permission); web PWA gets best-effort notifications
+      only — position the Android app as the alarm home.
+- [ ] **Supplements tracking** — daily supplement checklist (protein shake, CLA gels;
+      user-editable list) as check-in pills with streaks; taken/missed feeds the
+      Consistency pillar and Vic's context; reminded by the evening notification above.
+- [ ] **Backdated food logging** — log a meal against any past day (date picker in the
+      log/photo sheets, same pattern as the check-in day selector); Logged-meals card
+      and Fuel scoring already group by day so they pick it up automatically.
+- [ ] **Sleep-question clarity** — every sleep/evening item states exactly which night
+      it means ("How did you sleep LAST night (Wed→Thu)?", "Screens YESTERDAY evening?");
+      matters most when back-filling a previous day from the check-in day selector.
+- [ ] **Desktop companion site** — rich desktop UX for the same data: responsive
+      multi-column layout (score + trends + plan + food diary side by side), bigger
+      charts, keyboard-friendly logging, Vic chat in a persistent side panel. Same
+      PWA/Supabase backend — a layout tier above 900px rather than a separate app.
 
 ## After all features ship
 
