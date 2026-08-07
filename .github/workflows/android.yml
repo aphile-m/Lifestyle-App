@@ -43,18 +43,68 @@ jobs:
           npx cap sync android
       - name: Stable signing + version stamp
         run: |
+          set -euo pipefail
+          # Copying the keystore into ~/.android is NOT enough: the Android
+          # Gradle Plugin resolves the implicit debug keystore via ANDROID_SDK_HOME
+          # (set by setup-android on the runner) and silently generates a fresh
+          # one when it isn't there — which gave every release a different
+          # signature, so updates failed with "package conflicts with an
+          # existing package". Declare the signing config explicitly instead.
+          # `android { }` is just a closure on the extension, so appending a
+          # second block configures the same object.
           mkdir -p "$HOME/.android"
           cp android-signing/debug.keystore "$HOME/.android/debug.keystore"
+          KS="$PWD/android-signing/debug.keystore"
+          {
+            echo ""
+            echo "android {"
+            echo "    signingConfigs {"
+            echo "        stable {"
+            echo "            storeFile file('$KS')"
+            echo "            storePassword 'android'"
+            echo "            keyAlias 'androiddebugkey'"
+            echo "            keyPassword 'android'"
+            echo "        }"
+            echo "    }"
+            echo "    buildTypes {"
+            echo "        debug { signingConfig signingConfigs.stable }"
+            echo "        release { signingConfig signingConfigs.stable }"
+            echo "    }"
+            echo "}"
+          } >> android/app/build.gradle
+          tail -20 android/app/build.gradle
           sed -i -E "s/versionCode [0-9]+/versionCode ${{ github.run_number }}/" android/app/build.gradle
           sed -i -E "s/versionName \"[^\"]*\"/versionName \"${{ github.run_number }}\"/" android/app/build.gradle
           # Health Connect (capacitor-health plugin) needs minSdk 26
           sed -i -E "s/minSdkVersion = [0-9]+/minSdkVersion = 26/" android/variables.gradle
           grep minSdkVersion android/variables.gradle
+      - name: Verify the signing key is the stable one
+        run: |
+          set -euo pipefail
+          EXPECTED=$(keytool -list -v -keystore android-signing/debug.keystore -storepass android \
+            | grep -m1 'SHA256:' | tr -d ' ' | cut -d: -f2-)
+          echo "expected cert: $EXPECTED"
+          echo "EXPECTED_SHA=$EXPECTED" >> "$GITHUB_ENV"
       - name: Build debug APK
         run: |
           cd android
           chmod +x gradlew
           ./gradlew assembleDebug --no-daemon
+      - name: Fail the build if the APK isn't signed with the stable key
+        run: |
+          set -euo pipefail
+          APK=android/app/build/outputs/apk/debug/app-debug.apk
+          BT=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          ACTUAL=$("$BT/apksigner" verify --print-certs "$APK" \
+            | grep -m1 -i 'SHA-256 digest' | awk '{print toupper($NF)}')
+          EXPECT=$(echo "$EXPECTED_SHA" | tr -d ':' | tr 'a-f' 'A-F')
+          echo "apk cert: $ACTUAL"
+          echo "expected: $EXPECT"
+          [ "$ACTUAL" = "$EXPECT" ] || {
+            echo "::error::APK signed with the WRONG key — updates would fail to install over the previous release."
+            exit 1
+          }
+          echo "✅ signed with the stable key — this build installs over the previous one"
       - name: Publish release
         env:
           NOTES: ${{ inputs.notes }}

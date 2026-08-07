@@ -16,8 +16,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim, exerciseKey } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 54; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '7 Aug 2026, 09:47 SAST';
+const WEB_VERSION = 55; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '7 Aug 2026, 10:54 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -120,20 +120,77 @@ document.addEventListener('visibilitychange', () => {
 
 /* Android shell: web updates arrive live (the shell loads the hosted app), but
    the APK itself is versioned — check the latest release at launch and offer it. */
-async function checkNativeUpdate() {
+const APK_URL = 'https://github.com/aphile-m/Lifestyle-App/releases/latest/download/Trainer-App.apk';
+
+/* The web app updates itself (the shell loads the live site), so this only
+   matters when the NATIVE shell changes — a new plugin, a permission, an icon.
+   Returns {mine, latest, notes} or null. */
+async function nativeUpdateInfo() {
   const cap = window.Capacitor;
-  if (!cap || !(cap.isNativePlatform && cap.isNativePlatform())) return;
+  if (!cap || !(cap.isNativePlatform && cap.isNativePlatform())) return null;
+  const info = await cap.Plugins.App.getInfo();
+  const mine = parseInt(info.build) || parseInt(info.version) || 0;
+  const rel = await (await fetch('https://api.github.com/repos/aphile-m/Lifestyle-App/releases/latest')).json();
+  const latest = parseInt(String(rel.tag_name || '').replace('android-v', '')) || 0;
+  return { mine, latest, notes: (rel.body || '').trim() };
+}
+
+/* Manual check (Me → Settings) — always says something, even when current. */
+async function updateSheet() {
+  if (!window.Capacitor?.isNativePlatform?.()) {
+    sheet('App updates',
+      el('p', {}, 'You’re on the web app, which updates itself: every reload picks up the latest build. Nothing to install.'),
+      el('p', { class: 'muted', style: 'margin-top:8px' },
+        `Currently on web build v${WEB_VERSION}, shipped ${WEB_SHIPPED}.`));
+    return;
+  }
+  const body = el('div', {}, el('p', { class: 'muted' }, 'Checking…'));
+  const close = sheet('App updates', body);
   try {
-    const info = await cap.Plugins.App.getInfo();
-    const mine = parseInt(info.build) || parseInt(info.version) || 0;
-    const rel = await (await fetch('https://api.github.com/repos/aphile-m/Lifestyle-App/releases/latest')).json();
-    const latest = parseInt(String(rel.tag_name || '').replace('android-v', '')) || 0;
-    if (latest > mine) {
-      toast(`📦 App update v${latest} available (you have v${mine})`);
-      if (confirm(`Trainer App v${latest} is out (you have v${mine}). Download the update now? It installs over the current app — your data stays.`)) {
-        window.open('https://github.com/aphile-m/Lifestyle-App/releases/latest/download/Trainer-App.apk', '_blank');
-      }
-    }
+    const u = await nativeUpdateInfo();
+    body.replaceChildren(u.latest > u.mine
+      ? updateBody(u, () => close())
+      : el('div', {},
+        el('p', {}, `You’re up to date — Android app v${u.mine}, web build v${WEB_VERSION}.`),
+        el('p', { class: 'muted', style: 'margin-top:8px' },
+          'The web side updates itself every time you open the app; only the Android shell needs installing, and that’s rare.')));
+  } catch (e) {
+    body.replaceChildren(el('p', { class: 'muted' }, '⚠️ Couldn’t reach GitHub: ' + e.message));
+  }
+}
+
+function updateBody(u, close) {
+  return el('div', {},
+    el('p', { style: 'font-weight:700;font-size:17px' }, `Android app v${u.latest} is out`),
+    el('p', { class: 'muted', style: 'margin-top:2px' }, `You’re on v${u.mine}.`),
+    u.notes ? el('p', { style: 'margin-top:10px' }, u.notes) : null,
+    el('p', { class: 'muted', style: 'font-size:13px;margin-top:10px' },
+      'Tapping download opens the APK in your browser — allow the install when Android asks. It installs over the app; your data stays put (and everything is in the cloud anyway).'),
+    el('div', { class: 'chips', style: 'margin-top:14px' },
+      el('button', {
+        class: 'btn', onclick: () => {
+          settings.save({ skipUpdate: null });
+          window.open(APK_URL, '_blank');
+          close?.();
+        },
+      }, '⬇️ Download & install'),
+      el('button', {
+        class: 'chip', onclick: () => {
+          settings.save({ skipUpdate: u.latest }); // stop nagging until the next one
+          close?.();
+          toast('Skipped — check any time in Me → App updates.');
+        },
+      }, 'Not now')));
+}
+
+/* Launch check: offer once per version, in a sheet (never a native confirm —
+   those blocked the page on this device). */
+async function checkNativeUpdate() {
+  try {
+    const u = await nativeUpdateInfo();
+    if (!u || u.latest <= u.mine || settings.load().skipUpdate === u.latest) return;
+    let close;
+    close = sheet('Update available', updateBody(u, () => close?.()));
   } catch {}
 }
 
@@ -1796,6 +1853,7 @@ async function me(root) {
       el('button', { class: 'chip', onclick: remindersSheet },
         reminders().enabled ? '⏰ Alarm & reminders ✓' : '⏰ Alarm & reminders'),
       el('button', { class: 'chip', onclick: metricsSheet }, '✍️ Garmin day log (manual)'),
+      el('button', { class: 'chip', onclick: updateSheet }, '⬆️ App updates'),
       el('button', { class: 'chip', onclick: () => startJourney() }, '🚀 Replay setup journey')),
     el('p', { class: 'muted', style: 'margin-top:10px;font-size:12px' },
       `Web build v${WEB_VERSION} (shipped ${WEB_SHIPPED}) — updates itself when you reopen the app.`)));
