@@ -48,25 +48,22 @@ each item implements.
       follow-through (SPEC §6).
 - [x] **Android APK** — shipped (android-v5). OTA pipeline unnecessary: the shell loads
       the live site, so web ships land on next open.
-- [ ] **Notifications & wake-up alarm** — wake-up time alarm, an evening reminder to
-      log the day (check-in, meals, supplements), and a prep-for-tomorrow nudge
-      (session preview, kit out, meals planned). Set during the setup journey and
-      editable in Me → Settings. Android: Capacitor local-notifications (exact alarms
-      need the SCHEDULE_EXACT_ALARM permission); web PWA gets best-effort notifications
-      only — position the Android app as the alarm home.
-- [ ] **Supplements tracking** — daily supplement checklist (protein shake, CLA gels;
-      user-editable list) as check-in pills with streaks; taken/missed feeds the
-      Consistency pillar and Vic's context; reminded by the evening notification above.
-- [ ] **Backdated food logging** — log a meal against any past day (date picker in the
-      log/photo sheets, same pattern as the check-in day selector); Logged-meals card
-      and Fuel scoring already group by day so they pick it up automatically.
-- [ ] **Sleep-question clarity** — every sleep/evening item states exactly which night
-      it means ("How did you sleep LAST night (Wed→Thu)?", "Screens YESTERDAY evening?");
-      matters most when back-filling a previous day from the check-in day selector.
-- [ ] **Desktop companion site** — rich desktop UX for the same data: responsive
-      multi-column layout (score + trends + plan + food diary side by side), bigger
-      charts, keyboard-friendly logging, Vic chat in a persistent side panel. Same
-      PWA/Supabase backend — a layout tier above 900px rather than a separate app.
+- [x] **Notifications & wake-up alarm** — shipped v54: wake alarm, evening "log the
+      day" nudge and a prep-for-tomorrow reminder via `@capacitor/local-notifications`
+      (alarm on its own max-importance channel); set as step 5 of the setup journey,
+      editable in Me → Settings, re-applied at launch so reboots keep it. Web PWA falls
+      back to in-page notifications and says so. **Needs a new Android build to work on
+      the phone.**
+- [x] **Supplements tracking** — shipped v54: editable stack in the profile, ticked off
+      per day in the check-in, feeds a Consistency driver and Vic's context.
+- [x] **Backdated food logging** — shipped v54: 7-day picker on the log/photo/confirm
+      sheets; Logged-meals now shows a week so backfills are visible.
+- [x] **Sleep-question clarity** — shipped v54: every check-in section names the night
+      it covers (sleep = the night that ended that morning; evening habits = that day's
+      own evening, landing on the next morning), plus a guide-sheet explainer.
+- [x] **Desktop companion site** — shipped v54: responsive tier at ≥900px — left rail
+      nav, 2-column dashboard (3 above 1700px), Vic's chat in its own column with a
+      pinned input, sheets as centred modals. Same PWA/Supabase backend.
 
 ## After all features ship
 
