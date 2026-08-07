@@ -48,6 +48,14 @@ each item implements.
       follow-through (SPEC §6).
 - [x] **Android APK** — shipped (android-v5). OTA pipeline unnecessary: the shell loads
       the live site, so web ships land on next open.
+- [x] **App updates that actually install** — shipped android-v7: releases up to v6 were
+      each signed with a different throwaway key (the Gradle plugin regenerates the debug
+      keystore when it can't find one under `ANDROID_SDK_HOME`), so Android refused every
+      update with "package conflicts with an existing package". CI now declares an
+      explicit signing config from the committed keystore and fails the build if
+      `apksigner` reports any other certificate. In-app: an update sheet with release
+      notes at launch (once per version) plus a manual check in Me → App updates.
+      **One-time:** uninstall the pre-v7 app before installing v7.
 - [x] **Notifications & wake-up alarm** — shipped v54: wake alarm, evening "log the
       day" nudge and a prep-for-tomorrow reminder via `@capacitor/local-notifications`
       (alarm on its own max-importance channel); set as step 5 of the setup journey,
