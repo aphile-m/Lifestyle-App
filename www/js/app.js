@@ -10,13 +10,14 @@ import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentM
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities, stravaLastImport } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney, completeJourney } from './onboarding.js';
 import { hcSupported, hcConnected, hcConnect, hcSync, hcLastSync } from './health.js';
+import { reminders, applyReminders, remindersSummary, notifyNative, requestWebPermission, initNotifications } from './notify.js';
 import { vicAvatar } from './vic-avatar.js';
 import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim, exerciseKey } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 53; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '4 Aug 2026, 08:57 SAST';
+const WEB_VERSION = 54; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '7 Aug 2026, 09:47 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -38,6 +39,7 @@ function go(tab, fromPop = false) {
     go._init = true;
   }
   document.querySelectorAll('.tab').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  $('#screen').dataset.tab = tab; // desktop layout keys off this (see app.css ≥900px)
   $('#screen').replaceChildren();
   screens[tab]($('#screen'));
   localStorage.setItem('trainer_tab', tab);
@@ -70,6 +72,7 @@ initOnboarding({
     apiKey: apiKeySheet, cloud: cloudSheet, strava: stravaSheet,
     weight: logWeightSheet, tape: measurementSheet, bench: benchmarkSheet,
   },
+  remindersForm,
   onDone: () => { toast('Welcome aboard. Vic’s watching.'); go('today'); },
 });
 (async function boot() {
@@ -93,6 +96,10 @@ initOnboarding({
     autoStravaSync();
     autoHealthSync();
     checkNativeUpdate();
+    // tapping a reminder lands on the screen it's asking about; and the daily
+    // schedule is re-applied at launch so a reboot or reinstall keeps the alarm
+    initNotifications(tab => go(tab));
+    if (reminders().enabled) applyReminders().catch(() => {});
     resumeVicIfDangling(); // finish a reply that died with the previous page
   }
 })();
@@ -504,6 +511,12 @@ const todayIso = () => new Date().toISOString().slice(0, 10);
 
 /* A simple per-day quality score for the check-in chart (0–100): the mean of
    whatever was logged that day. Transparent maths, explained in the guide. */
+const shortDay = iso => ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'][new Date(iso + 'T12:00:00').getDay()];
+const shiftIso = (iso, days) => new Date(Date.parse(iso + 'T12:00:00') + days * 86400e3).toISOString().slice(0, 10);
+/* The daily stack, from the profile — comma-separated so it stays editable. */
+const supplementList = () => (settings.profile.supplements || '')
+  .split(',').map(s => s.trim()).filter(Boolean).slice(0, 8);
+
 function checkinDayScore(c) {
   if (!c) return null;
   const parts = [];
@@ -570,6 +583,17 @@ function checkinForm() {
       const water = counterRow('💧 Water (glasses)', ex.water ?? 0);
       const coffee = counterRow('☕ Coffee (cups)', ex.coffee ?? 0);
 
+      // supplements: the daily stack from the profile, ticked off per day
+      const suppList = supplementList();
+      const supps = new Set(ex.supps || []);
+      const suppBox = suppList.length ? el('div', { style: 'margin:14px 0 4px' },
+        el('p', { class: 'muted', style: 'font-size:13px;margin-bottom:6px' },
+          `💊 Supplements taken ${selected === todayIso() ? 'today' : 'that day'}`),
+        el('div', { class: 'chips' }, ...suppList.map(s => el('button', {
+          class: 'chip' + (supps.has(s) ? ' on' : ''),
+          onclick: e => { supps.has(s) ? supps.delete(s) : supps.add(s); e.target.classList.toggle('on'); },
+        }, s)))) : null;
+
       // alcohol by type — converted to units, since a beer is not a double whisky.
       // Hidden until the Alcohol chip is on (or the day already has drinks logged).
       const det = { beer: 0, wine: 0, spirit: 0, cocktail: 0, ...(ex.drinksDetail || {}) };
@@ -590,7 +614,26 @@ function checkinForm() {
       };
       renderAlc();
 
-      formBox.replaceChildren(chipRow, sleep.row, energy.row, water.row, coffee.row, alcBox,
+      // Which night is which: sleep is the night that ENDED on the selected
+      // morning; evening habits belong to that day's own evening and land on
+      // the NEXT morning. Spelled out with real day names so backfilling is
+      // never a guess.
+      const prev = shiftIso(selected, -1), next = shiftIso(selected, 1);
+      const head = (title, sub) => el('div', { style: 'margin:18px 0 2px' },
+        el('p', { style: 'font-weight:700;font-size:14.5px' }, title),
+        el('p', { class: 'muted', style: 'font-size:12.5px;margin-top:1px' }, sub));
+
+      formBox.replaceChildren(
+        head(`😴 Last night — ${shortDay(prev)} evening → ${shortDay(selected)} morning`,
+          selected === todayIso() ? 'The night you woke up from this morning.'
+            : `The night you woke up from on ${dayLabel(selected)}.`),
+        sleep.row,
+        head(`📋 ${dayLabel(selected)} itself`, 'How the day went, and what went in.'),
+        energy.row, water.row, coffee.row, suppBox,
+        head('🏷 Habits & flags',
+          `Tap anything true for ${dayLabel(selected)}. The evening ones — screens in bed, late caffeine, ` +
+          `late meal, alcohol — count for ${shortDay(selected)} evening, so they show up in ${shortDay(next)} morning’s sleep.`),
+        chipRow, alcBox,
         el('button', { class: 'chip', style: 'margin-top:8px', onclick: checkinGuideSheet },
           'ℹ️ What counts? How to log each measure'),
         el('button', {
@@ -600,6 +643,7 @@ function checkinForm() {
             const vals = {
               sleep: sleep.value(), energy: energy.value(), water: water.value(), coffee: coffee.value(),
               drinks: tags.has('Alcohol') ? units : 0, drinksDetail: { ...det },
+              supps: suppList.length ? [...supps] : (ex.supps ?? null),
             };
             const ts = selected === todayIso() ? new Date().toISOString() : new Date(selected + 'T20:00:00').toISOString();
             const existing = byDay[selected];
@@ -628,9 +672,18 @@ function checkinGuideSheet() {
   ];
   sheet('What counts?',
     el('p', { class: 'muted' }, 'Every measure, what it feeds, and where the thresholds sit. Honest beats perfect — the score renormalises around anything you skip.'),
+    ...sec('🌗 Which night am I logging?',
+      'A check-in belongs to ONE day, and the form says so on every section.',
+      'Sleep = the night that ENDED that morning. Logging Thursday? That’s Wednesday evening → Thursday morning — the night you woke up from.',
+      'Evening habits (screens in bed, late caffeine, late meal, alcohol) = that day’s OWN evening, which lands on the NEXT morning’s sleep. Logging Thursday? That’s Thursday night, and it shows up in Friday’s sleep number.',
+      'So a bad Thursday evening scores against Thursday’s habits and Friday’s sleep — which is exactly how Vic finds the link.'),
     ...sec('😴 Sleep quality (1–5)',
       '1 = broken night, under 5h. 2 = short or restless. 3 = okay, a bit groggy. 4 = solid 7h+, woke fine. 5 = 8h, woke fresh without the alarm.',
       'Feeds the Recover pillar.'),
+    ...sec('💊 Supplements',
+      'Your stack from the profile (Me → Edit profile) — tap each one you actually took that day.',
+      'Taking them feeds the Consistency pillar and gives Vic the adherence picture: he’ll notice a protein shake missed on training days before you do.',
+      'Change the list any time — add creatine, drop CLA, whatever your stack becomes.'),
     ...sec('⚡ Energy / mood (1–5)',
       '1 = running on fumes. 3 = normal day. 5 = firing all day.',
       'Persistent 1–2s tell Vic something (sleep, food, overtraining) needs attention.'),
@@ -1523,7 +1576,7 @@ async function fuel(root) {
   // Logged meals — what you ate, what the AI estimated, and how it compares
   // to YOUR calorie target (Mifflin-St Jeor from profile + activity)
   const [foods3, weightsAll, metrics7, workouts7] = await Promise.all([
-    logs.recent('foods', 3), logs.recent('weights', 28), logs.recent('metrics', 7), logs.recent('workouts', 7),
+    logs.recent('foods', 7), logs.recent('weights', 28), logs.recent('metrics', 7), logs.recent('workouts', 7),
   ]);
   const stepsArr = metrics7.map(m => m.steps).filter(v => v != null);
   const targets = energyTargets(settings.profile,
@@ -1536,7 +1589,7 @@ async function fuel(root) {
       el('button', { class: 'chip', onclick: () => logMealSheet() }, '📝 Describe a meal')));
   if (!foods3.length) {
     mealsCard.append(el('p', { class: 'muted' },
-      'Nothing logged in the last 3 days. Photos and descriptions both get AI nutrition estimates — logging is the single strongest predictor of weight-loss success.'));
+      'Nothing logged in the last 7 days. Photos and descriptions both get AI nutrition estimates — logging is the single strongest predictor of weight-loss success.'));
   } else {
     const byDay = {};
     for (const f of foods3) (byDay[f.ts.slice(0, 10)] ||= []).push(f);
@@ -1649,16 +1702,17 @@ function mealPlanDraftSheet(draft) {
 
 function photoLogSheet() {
   const input = el('input', { type: 'file', accept: 'image/*', capture: 'environment' });
+  const day = mealDayPicker();
   const status = el('p', { class: 'muted', style: 'margin-top:8px' }, 'Snap the plate — Claude estimates portions and macros; you confirm.');
   const close = sheet('Photo log',
-    el('div', { class: 'field' }, input), status);
+    day.row, el('div', { class: 'field' }, input), status);
   input.addEventListener('change', async () => {
     if (!input.files?.[0]) return;
     if (!settings.apiKey) { close(); apiKeySheet(); return; }
     status.textContent = 'Estimating…';
     try {
       const est = await estimateMealFromPhoto(await downscaleImage(input.files[0]));
-      closeThen(close, () => confirmMealSheet(est.desc || 'Meal (photo)', 'photo', est));
+      closeThen(close, () => confirmMealSheet(est.desc || 'Meal (photo)', 'photo', est, day.value()));
     } catch (e) { status.textContent = '⚠️ ' + e.message; }
   });
 }
@@ -1739,6 +1793,8 @@ async function me(root) {
         stravaConnected() ? 'Strava ✓' : 'Connect Strava'),
       el('button', { class: 'chip', onclick: healthSheet },
         hcConnected() ? '⌚ Health Connect ✓' : '⌚ Health Connect'),
+      el('button', { class: 'chip', onclick: remindersSheet },
+        reminders().enabled ? '⏰ Alarm & reminders ✓' : '⏰ Alarm & reminders'),
       el('button', { class: 'chip', onclick: metricsSheet }, '✍️ Garmin day log (manual)'),
       el('button', { class: 'chip', onclick: () => startJourney() }, '🚀 Replay setup journey')),
     el('p', { class: 'muted', style: 'margin-top:10px;font-size:12px' },
@@ -1761,6 +1817,41 @@ function logWeightSheet() {
       },
     }, 'Save'));
   input.focus();
+}
+
+/* Which day is this meal for? Last 7 days, today by default — "I forgot to log
+   yesterday's dinner" is the single most common logging gap. */
+function mealDayPicker(initial = todayIso()) {
+  let sel = initial;
+  const days = [];
+  for (let d = 6; d >= 0; d--) days.push(shiftIso(todayIso(), -d));
+  const label = iso => iso === todayIso() ? 'Today'
+    : iso === shiftIso(todayIso(), -1) ? 'Yesterday'
+      : `${shortDay(iso)} ${+iso.slice(8)}`;
+  const chips = days.map(iso => el('button', {
+    class: 'chip' + (iso === sel ? ' on' : ''),
+    onclick: e => {
+      sel = iso;
+      [...e.target.parentNode.children].forEach(c => c.classList.remove('on'));
+      e.target.classList.add('on');
+    },
+  }, label(iso)));
+  return {
+    row: el('div', { style: 'margin-bottom:10px' },
+      el('p', { class: 'muted', style: 'font-size:13px;margin-bottom:4px' }, 'Which day?'),
+      el('div', { class: 'chips' }, ...chips)),
+    value: () => sel,
+    label: () => label(sel),
+  };
+}
+
+/* Timestamp for a meal on a chosen day: midday UTC so the day-grouping is
+   unambiguous in any timezone, with the current minute/second keeping several
+   backfilled meals on one day distinct (foods upsert on user_id+ts). */
+function mealTs(iso) {
+  if (iso === todayIso()) return new Date().toISOString();
+  const n = new Date(), pad = (v, l = 2) => String(v).padStart(l, '0');
+  return `${iso}T12:${pad(n.getMinutes())}:${pad(n.getSeconds())}.${pad(n.getMilliseconds(), 3)}Z`;
 }
 
 /* Tap a logged meal: see it, edit it, re-run the AI estimate, or remove it. */
@@ -1841,10 +1932,12 @@ async function autoEstimateMeal(id) {
 
 function logMealSheet() {
   const input = el('input', { placeholder: 'e.g. chicken stir-fry with rice, large plate' });
+  const day = mealDayPicker();
   const status = el('p', { class: 'muted', style: 'margin-top:8px;font-size:13px' },
     'The AI estimates calories and macros from your description — you confirm before it counts.');
   let source = 'manual';
   const close = sheet('Log a meal',
+    day.row,
     el('div', { class: 'field' }, input),
     el('div', { class: 'chips', style: 'margin-bottom:8px' },
       el('button', { class: 'chip on', onclick: e => { source = source === 'cookbook' ? 'manual' : 'cookbook'; e.target.classList.toggle('on'); } },
@@ -1859,7 +1952,7 @@ function logMealSheet() {
           e.target.disabled = true; status.textContent = 'Estimating nutrition…';
           try {
             const est = await estimateMealFromText(desc);
-            closeThen(close, () => confirmMealSheet(desc, source, est));
+            closeThen(close, () => confirmMealSheet(desc, source, est, day.value()));
           } catch (err) {
             e.target.disabled = false;
             status.textContent = '⚠️ ' + err.message;
@@ -1869,9 +1962,13 @@ function logMealSheet() {
       el('button', {
         class: 'chip', onclick: async () => {
           if (!input.value.trim()) return toast('Say what it was.');
-          const id = await logs.add('foods', { desc: input.value.trim(), source, estimating: !!settings.apiKey });
+          const id = await logs.add('foods', {
+            ts: mealTs(day.value()), desc: input.value.trim(), source, estimating: !!settings.apiKey,
+          });
           close();
-          toast(settings.apiKey ? 'Logged — estimating nutrition in the background…' : 'Meal logged (no estimate).');
+          toast(settings.apiKey
+            ? `Logged for ${day.label().toLowerCase()} — estimating nutrition…`
+            : `Meal logged for ${day.label().toLowerCase()}.`);
           trySync(); goCurrent('today');
           autoEstimateMeal(id);
         },
@@ -1887,20 +1984,22 @@ function closeThen(close, fn) {
 }
 
 /* Shared confirm step for text- and photo-estimated meals. */
-function confirmMealSheet(desc, source, est) {
+function confirmMealSheet(desc, source, est, forDay = todayIso()) {
   const descIn = el('input', { value: desc || est.desc || '' });
   const kcal = el('input', { type: 'number', value: est.kcal ?? '' });
+  const day = mealDayPicker(forDay);
   const close = sheet('Confirm meal',
+    day.row,
     el('div', { class: 'field' }, el('label', {}, 'What is it?'), descIn),
     el('div', { class: 'field' },
       el('label', {}, `kcal (protein ${est.protein_g}g · carbs ${est.carbs_g}g · fat ${est.fat_g}g · confidence ${est.confidence})`), kcal),
     el('button', {
       class: 'btn', onclick: async () => {
         await logs.add('foods', {
-          desc: descIn.value.trim() || 'Meal', source,
+          ts: mealTs(day.value()), desc: descIn.value.trim() || 'Meal', source,
           kcal: parseInt(kcal.value) || null, protein: est.protein_g, carbs: est.carbs_g, fat: est.fat_g,
         });
-        close(); toast('Meal logged. Fuel pillar sees it.'); trySync(); goCurrent('fuel');
+        close(); toast(`Logged for ${day.label().toLowerCase()}. Fuel pillar sees it.`); trySync(); goCurrent('fuel');
       },
     }, 'Log it'));
 }
@@ -2245,6 +2344,78 @@ function metricsSheet() {
     }, 'Save'));
 }
 
+/* Alarm + the two daily nudges. Shared by Settings and the setup journey, so
+   the journey teaches it once and Settings edits it forever. */
+function remindersForm(onSaved) {
+  const r = reminders();
+  const state = { ...r };
+  const status = el('p', { class: 'muted', style: 'font-size:13px;margin-top:10px' }, '');
+  const rows = el('div', {});
+
+  const timeRow = (key, onKey, emoji, label, hint) => {
+    const time = el('input', { type: 'time', value: state[key], style: 'max-width:130px' });
+    const toggle = el('button', { class: 'chip' + (state[onKey] ? ' on' : '') },
+      state[onKey] ? 'On' : 'Off');
+    time.addEventListener('change', () => { state[key] = time.value || state[key]; });
+    toggle.addEventListener('click', () => {
+      state[onKey] = !state[onKey];
+      toggle.classList.toggle('on');
+      toggle.textContent = state[onKey] ? 'On' : 'Off';
+    });
+    return el('div', { style: 'margin:12px 0' },
+      el('div', { class: 'row', style: 'gap:10px;align-items:center' },
+        el('span', { class: 'grow' }, el('b', {}, `${emoji} ${label}`)), time, toggle),
+      el('p', { class: 'muted', style: 'font-size:12.5px;margin-top:2px' }, hint));
+  };
+
+  const master = el('button', { class: 'btn' + (state.enabled ? '' : ' ghost'), style: 'width:100%' },
+    state.enabled ? 'Reminders are ON' : 'Turn reminders on');
+  master.addEventListener('click', async () => {
+    if (!state.enabled && !notifyNative()) {
+      try { if (!(await requestWebPermission())) { status.textContent = '⚠️ Notifications are blocked in this browser’s settings.'; return; } }
+      catch (e) { status.textContent = '⚠️ ' + e.message; return; }
+    }
+    state.enabled = !state.enabled;
+    master.textContent = state.enabled ? 'Reminders are ON' : 'Turn reminders on';
+    master.classList.toggle('ghost', !state.enabled);
+  });
+
+  rows.append(
+    timeRow('wake', 'wakeOn', '⏰', 'Wake-up alarm', 'Vic wakes you. Weigh-in before breakfast is the habit this builds.'),
+    timeRow('evening', 'eveningOn', '📋', 'Log the day', 'Check-in, meals and supplements while the day is still fresh.'),
+    timeRow('prep', 'prepOn', '🎒', 'Prep for tomorrow', 'Tomorrow’s session, kit out, meals known. Tomorrow starts tonight.'));
+
+  const save = el('button', { class: 'btn', style: 'width:100%;margin-top:14px' }, 'Save reminders');
+  save.addEventListener('click', async () => {
+    settings.save({ reminders: state });
+    save.disabled = true; save.textContent = 'Saving…';
+    try {
+      const res = await applyReminders();
+      status.textContent = !state.enabled ? 'Reminders off.'
+        : res.native ? `Set ✓ ${res.scheduled} daily reminder${res.scheduled === 1 ? '' : 's'} — they fire even when the app is closed.`
+          : `Set ✓ — but this is the browser: reminders only fire while a tab is open. Install the Android app for a real alarm.`;
+      toast(state.enabled ? 'Reminders saved.' : 'Reminders off.');
+      onSaved?.(state);
+    } catch (e) {
+      status.textContent = e.message === 'NO_PERMISSION'
+        ? '⚠️ Notifications are blocked — allow them for Trainer App in your phone’s settings, then save again.'
+        : '⚠️ ' + e.message;
+    }
+    save.disabled = false; save.textContent = 'Save reminders';
+  });
+
+  return el('div', {},
+    el('p', { class: 'muted', style: 'font-size:13px' },
+      notifyNative()
+        ? 'These fire on your phone whether the app is open or not.'
+        : 'In the browser these only fire while a tab is open — the Android app is the real alarm.'),
+    master, rows, save, status);
+}
+
+function remindersSheet() {
+  const close = sheet('Alarm & reminders', remindersForm(() => { close(); goCurrent('me'); }));
+}
+
 function healthSheet() {
   const status = el('p', { class: 'muted', style: 'margin-top:10px' },
     !hcSupported() ? 'Available in the Android app only (install it from Me → the update prompt, or GitHub releases).'
@@ -2335,6 +2506,7 @@ function profileSheet() {
   const injuries = el('input', { value: p.injuries, placeholder: 'e.g. left knee — no deep squats' });
   const equipment = el('input', { value: p.equipment });
   const minutes = el('input', { type: 'number', value: p.sessionMinutes, min: 15, max: 180, step: 5 });
+  const supps = el('input', { value: p.supplements ?? '', placeholder: 'e.g. Protein shake, CLA gels' });
   const age = el('input', { type: 'number', value: p.age ?? '', min: 16, max: 100, placeholder: 'e.g. 34' });
   const height = el('input', { type: 'number', value: p.heightCm ?? '', min: 120, max: 230, placeholder: 'e.g. 178' });
   const sex = el('select', {},
@@ -2353,6 +2525,8 @@ function profileSheet() {
     el('div', { class: 'field' }, el('label', {}, 'Injuries / limits (Vic works around these)'), injuries),
     el('div', { class: 'field' }, el('label', {}, 'Equipment (drives every plan)'), equipment),
     el('div', { class: 'field' }, el('label', {}, 'Session budget (min, incl. warm-up & cool-down)'), minutes),
+    el('div', { class: 'field' },
+      el('label', {}, 'Daily supplements (comma-separated — ticked off in the check-in)'), supps),
     el('div', { class: 'field' }, el('label', {}, 'Vic’s tone dial'), tone),
     el('button', {
       class: 'btn', onclick: () => {
@@ -2360,6 +2534,7 @@ function profileSheet() {
           profile: {
             ...p, injuries: injuries.value, equipment: equipment.value,
             sessionMinutes: parseInt(minutes.value) || 60, tone: tone.value,
+            supplements: supps.value.trim(),
             age: parseInt(age.value) || null, heightCm: parseInt(height.value) || null,
             sex: sex.value || null,
           },

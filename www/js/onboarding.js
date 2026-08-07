@@ -126,7 +126,7 @@ const PAGES = [
         'I’m Vic. Here’s how this works: sustainable weight loss, measured properly, no crash diets, no guesswork.',
         'I’ll hear any obstacle out once — then we find the smaller version of the workout, not the excuse. Sore knees? We swap squats. Busy day? Thirty minutes. We don’t skip.',
         'Did you know: people who set a measured baseline before starting are far more likely to still be training at week eight? That’s why I measure before I prescribe.',
-        'Four quick things and I can build your first month. Ready?')),
+        'Five quick things and I can build your first month. Ready?')),
     next: 'Let’s do this',
   },
   { // 4 — Vic step 1: profile
@@ -139,7 +139,7 @@ const PAGES = [
       const tone = el('select', {}, ...['gentle', 'balanced', 'direct'].map(t =>
         el('option', { value: t, selected: p.tone === t }, t[0].toUpperCase() + t.slice(1))));
       return el('div', { class: 'j-page' },
-        el('p', { class: 'j-step' }, 'Vic’s setup — step 1 of 4'),
+        el('p', { class: 'j-step' }, 'Vic’s setup — step 1 of 5'),
         vicSays('First: what I’m working with. Your goal is locked — sustainable weight loss at ' + esc(p.targetRate) + '. Check the rest.'),
         el('div', { class: 'field' }, el('label', {}, 'Injuries / limits (I work around these, not through them)'), injuries),
         el('div', { class: 'field' }, el('label', {}, 'Your kit (drives every plan I write)'), equipment),
@@ -165,7 +165,7 @@ const PAGES = [
     render: async () => {
       const g = await gates();
       return el('div', { class: 'j-page' },
-        el('p', { class: 'j-step' }, 'Vic’s setup — step 2 of 4'),
+        el('p', { class: 'j-step' }, 'Vic’s setup — step 2 of 5'),
         vicSays(
           'On the scale. One number, no judgement — it’s a starting line, not a verdict.',
           'Did you know: I only ever coach off your 7-day trend, never a single day’s spike. Water weight lies; trends don’t.'),
@@ -179,7 +179,7 @@ const PAGES = [
     render: async () => {
       const g = await gates();
       return el('div', { class: 'j-page' },
-        el('p', { class: 'j-step' }, 'Vic’s setup — step 3 of 4'),
+        el('p', { class: 'j-step' }, 'Vic’s setup — step 3 of 5'),
         vicSays(
           'Tape measure time. Waist, hips, chest, arm, thigh — same spots every 4 weeks.',
           'Did you know: when weight stalls, the tape usually doesn’t. Muscle in, fat out can be invisible on the scale and obvious on the waist.'),
@@ -193,7 +193,7 @@ const PAGES = [
     render: async () => {
       const g = await gates();
       return el('div', { class: 'j-page' },
-        el('p', { class: 'j-step' }, 'Vic’s setup — step 4 of 4'),
+        el('p', { class: 'j-step' }, 'Vic’s setup — step 4 of 5'),
         vicSays(
           'Last one: benchmarks. Resting heart rate, a timed 1.6 km, max push-ups, a plank, goblet squats. This is what makes your first month fit YOU — not a template.',
           'Don’t have time to test everything today? Log what you can now; the rest tonight or tomorrow.'),
@@ -203,7 +203,19 @@ const PAGES = [
     nextHint: 'Log at least one benchmark to continue.',
     next: 'Next',
   },
-  { // 8 — unlocked
+  { // 8 — Vic step 5: alarm & reminders
+    render: async () => el('div', { class: 'j-page' },
+      el('p', { class: 'j-step' }, 'Vic’s setup — step 5 of 5'),
+      vicSays(
+        'Last thing, and it’s the one that makes the rest stick: when do you get up, and when do I check in?',
+        'Did you know: a consistent wake time is the single strongest lever on sleep quality — steadier than bedtime, because it sets the whole clock.',
+        'I’ll wake you, nudge you to log while the day’s still fresh, and remind you to set tomorrow up the night before. Change any of it later in Me → Settings.'),
+      deps.remindersForm(),
+      el('p', { class: 'muted', style: 'font-size:12.5px;margin-top:12px' },
+        'Not now? Skip it — nothing here blocks you.')),
+    next: 'Next',
+  },
+  { // 9 — unlocked
     render: async () => {
       const g = await gates();
       const planBtn = el('button', { class: 'btn', style: 'margin-top:14px' },

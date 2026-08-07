@@ -61,6 +61,7 @@ create table if not exists trainer_checkins (
   drinks      numeric(4,1),                           -- alcohol UNITS (UK CMO low-risk: ≤14/wk)
   drinks_detail jsonb,                                -- typed counts {beer,wine,spirit,cocktail}
   caffeine_cups int check (caffeine_cups between 0 and 20),  -- coffees (~100mg each; guide ≤4)
+  supplements jsonb,                                  -- names from the profile stack taken that day
 
   soreness    jsonb not null default '{}'::jsonb,    -- body-map areas (v2)
   unique (user_id, day)

@@ -58,7 +58,7 @@ export async function scoreDetail() {
     move: pillarMove(workouts, metrics),
     fuel: pillarFuel(foods, checkins, priorCheckins, { workouts, metrics, weights }),
     recover: pillarRecover(checkins, metrics),
-    consistency: pillarConsistency([workouts, foods, checkins, journal]),
+    consistency: pillarConsistency([workouts, foods, checkins, journal], checkins),
     body: pillarBody(weights),
   };
   const pillars = Object.fromEntries(Object.entries(detail).map(([k, d]) => [k, d.score]));
@@ -224,12 +224,24 @@ function pillarRecover(checkins, metrics = []) {
   });
 }
 
-function pillarConsistency(streams) {
+function pillarConsistency(streams, checkins = []) {
   const daysActive = new Set(streams.flat().map(r => r.ts.slice(0, 10))).size;
   if (!daysActive) return { score: null, drivers: [] };
   const drivers = [driver('Days you showed up', `${daysActive} of 7 days`, clamp(Math.round(daysActive / 7 * 100)),
     'Any log counts — a weight, a check-in, a meal. Daily touch beats perfect weeks.')];
-  return { score: drivers[0].score, drivers };
+  // supplement adherence — only scored on days you actually checked in, so a
+  // missed check-in never doubles as a missed supplement
+  const stack = (settings.profile.supplements || '').split(',').map(s => s.trim()).filter(Boolean);
+  const logged = checkins.filter(c => Array.isArray(c.supps));
+  if (stack.length && logged.length) {
+    const taken = logged.reduce((a, c) => a + c.supps.filter(s => stack.includes(s)).length, 0);
+    const possible = logged.length * stack.length;
+    drivers.push(driver('Supplements taken', `${taken} of ${possible} across ${logged.length} logged day${logged.length === 1 ? '' : 's'}`,
+      clamp(Math.round(taken / possible * 100)),
+      'Your stack only works if it goes in. Same time each day beats remembering.'));
+  }
+  const score = Math.round(mean(drivers.map(d => d.score)));
+  return { score, drivers };
 }
 
 function pillarBody(weights) {

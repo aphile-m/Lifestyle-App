@@ -131,6 +131,15 @@ async function buildContext() {
     const mixStr = Object.entries(mix).map(([k, n]) => `${n} ${k}`).join(', ');
     lines.push(`Alcohol: ${weekUnits} units this week (UK guide: ≤14/wk)${mixStr ? ` — mix: ${mixStr}` : ''}${priorWeekly ? ` (recent baseline ≈${priorWeekly} units/wk — coach the TREND: cutting down deserves credit, per harm-reduction practice)` : ''}.`);
   }
+  const stack = (settings.profile.supplements || '').split(',').map(s => s.trim()).filter(Boolean);
+  const suppDays = wk.filter(c => Array.isArray(c.supps));
+  if (stack.length && suppDays.length) {
+    const miss = {};
+    for (const s of stack) miss[s] = suppDays.filter(c => !c.supps.includes(s)).length;
+    lines.push(`Supplements (${stack.join(', ')}): ` +
+      stack.map(s => `${s} taken ${suppDays.length - miss[s]}/${suppDays.length} logged days`).join('; ') +
+      '. Nudge the misses without nagging; they only work taken daily.');
+  }
   const cf = wk.map(c => c.coffee).filter(v => v != null);
   if (cf.length) lines.push(`Caffeine: avg ${(cf.reduce((a, b) => a + b, 0) / cf.length).toFixed(1)} coffees/day this week (guide: ≤4 cups ≈ 400 mg; none within 8h of bed for sleep quality).`);
   const [meas, bench, plan] = await Promise.all([latestMeasurement(), latestBenchmark(), activePlan()]);

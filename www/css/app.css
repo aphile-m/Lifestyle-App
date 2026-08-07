@@ -269,3 +269,82 @@ body {
   color: var(--card-2); -webkit-text-stroke: 1.5px var(--ink-dim); cursor: pointer; }
 .star.on { color: var(--accent); -webkit-text-stroke: 0; }
 .starlab { text-align: center; font-size: 13px; margin-top: 4px; min-height: 2.4em; }
+
+/* ============================================================
+   DESKTOP TIER (≥900px) — same app, room to breathe.
+   The tab bar becomes a left rail; dashboard screens flow into
+   columns; sheets become centred modals. Phone layout untouched.
+   ============================================================ */
+@media (min-width: 900px) {
+  :root { --rail-w: 232px; }
+
+  /* --- bottom tab bar → left rail --- */
+  .tabbar {
+    top: 0; bottom: 0; right: auto; width: var(--rail-w); height: 100%;
+    flex-direction: column; align-items: stretch; justify-content: flex-start;
+    gap: 4px; padding: 22px 12px; border-top: none; border-right: 1px solid var(--line);
+  }
+  .tabbar::before {
+    content: '🥊 Trainer'; display: block; font-weight: 700; font-size: 17px;
+    color: var(--ink); padding: 4px 12px 18px;
+  }
+  .tab {
+    flex: 0 0 auto; flex-direction: row; justify-content: flex-start; gap: 12px;
+    font-size: 15px; padding: 11px 12px; border-radius: 12px; min-height: 0;
+  }
+  .tab .tab-ic { font-size: 19px; }
+  .tab:hover { background: var(--card); color: var(--ink); }
+  .tab.active { background: var(--card-2); }
+
+  /* --- content: wide canvas beside the rail --- */
+  .screen {
+    margin-left: var(--rail-w); max-width: none;
+    padding: 30px clamp(24px, 4vw, 56px) 56px;
+  }
+  .screen > * { max-width: 1060px; }
+
+  /* dashboard screens flow into columns; headings span the lot */
+  #screen[data-tab='today'], #screen[data-tab='me'],
+  #screen[data-tab='fuel'], #screen[data-tab='train'] {
+    columns: 2; column-gap: 20px; max-width: 1060px;
+  }
+  #screen[data-tab='today'] > *, #screen[data-tab='me'] > *,
+  #screen[data-tab='fuel'] > *, #screen[data-tab='train'] > * {
+    break-inside: avoid; -webkit-column-break-inside: avoid;
+  }
+  .h-page { column-span: all; font-size: 30px; }
+  .hey-row { column-span: all; max-width: 700px; }
+  .h-page + p, .screen > p.muted:first-of-type { column-span: all; }
+
+  /* Vic's chat: a real conversation column, input pinned to it */
+  #screen[data-tab='coach'] { max-width: 860px; }
+  .chat { padding-bottom: 96px; }
+  .chat-input {
+    left: var(--rail-w); bottom: 0; max-width: 860px;
+    padding: 14px clamp(24px, 4vw, 56px); margin: 0;
+  }
+
+  /* --- sheets: centred modals, not bottom sheets --- */
+  .overlay { align-items: center; }
+  .sheet {
+    border-radius: 20px; max-width: 560px; max-height: 84vh;
+    padding: 26px 26px 30px; box-shadow: 0 24px 60px rgba(0, 0, 0, .55);
+  }
+
+  /* pointer affordances the phone doesn't need */
+  .card { transition: border-color .15s; }
+  .chip:hover, .btn:hover { filter: brightness(1.08); }
+  .mealrow:hover { background: var(--card-2); }
+
+  /* the workout player stays a single focused column, centred */
+  .pfocus, .ptime, .pctl { max-width: 620px; margin-left: auto; margin-right: auto; }
+  .pring { width: 300px; height: 300px; }
+}
+
+/* only genuinely wide desks get a third column — two roomy columns beat three
+   cramped ones, and the rating rows stop wrapping */
+@media (min-width: 1700px) {
+  #screen[data-tab='today'], #screen[data-tab='me'],
+  #screen[data-tab='fuel'], #screen[data-tab='train'] { columns: 3; max-width: 1560px; }
+  .screen > * { max-width: 1560px; }
+}
