@@ -39,7 +39,10 @@ jobs:
         run: |
           npm install --no-audit --no-fund
           npx cap add android
-          npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#0A0D08' --iconBackgroundColorDark '#0A0D08' --splashBackgroundColor '#0A0D08' --splashBackgroundColorDark '#0A0D08'
+          # Icon background is white so Vic (dark kit, dark hair) stays legible
+          # on a dark home screen — on #0A0D08 the launcher icon vanished.
+          # Splash stays dark to match the app itself.
+          npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#FFFFFF' --iconBackgroundColorDark '#FFFFFF' --splashBackgroundColor '#0A0D08' --splashBackgroundColorDark '#0A0D08'
           npx cap sync android
       - name: Stable signing + version stamp
         run: |
