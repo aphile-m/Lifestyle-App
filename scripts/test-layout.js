@@ -42,6 +42,15 @@ const PLAN = { active: true, plan: {
     await logs.add('measurements', { waist: 90, chest: 100 });
     await logs.add('benchmarks', { restingHr: 62, pushups: 15, runSec: 700 });
     await logs.add('plans', plan);
+    // enough real content that each tab renders its full furniture
+    for (let i = 0; i < 6; i++) {
+      await logs.add('weights', { kg: 96 - i * 0.2 });
+      await logs.add('foods', { desc: `Meal ${i}`, kcal: 600, protein: 40 });
+      await logs.add('workouts', { desc: `Session ${i}`, rpe: 6, detail: { minutes: 45 } });
+      await logs.add('checkins', { day: `2026-08-0${i + 1}`, sleep: 4, energy: 4, water: 6, drinks: 0 });
+    }
+    await logs.add('chat', { role: 'user', text: 'How am I doing?' });
+    await logs.add('chat', { role: 'vic', text: 'Solid week. '.repeat(40) });
   }, PLAN);
   await page.evaluate(() => document.querySelector('[data-tab="train"]').click());
   await page.waitForTimeout(700);
@@ -72,6 +81,93 @@ const PLAN = { active: true, plan: {
       r.lastBottom <= r.barTop + 0.5, `content ends at ${r.lastBottom.toFixed(0)}, bar starts at ${r.barTop.toFixed(0)}`);
   }
   await page.evaluate(() => document.documentElement.style.removeProperty('--sab'));
+
+  /* Every tab, with its REAL content, on a phone with a gesture bar. Measures
+     the actual last rendered element rather than a probe, so anything a screen
+     pins or overlays itself (Vic's composer) is caught too. */
+  for (const tab of ['today', 'coach', 'train', 'fuel', 'me']) {
+    await page.evaluate(t => {
+      document.documentElement.style.setProperty('--sab', '48px');
+      document.querySelector(`[data-tab="${t}"]`).click();
+    }, tab);
+    await page.waitForTimeout(900);
+    const r = await page.evaluate(async () => {
+      window.scrollTo(0, document.body.scrollHeight);
+      await new Promise(r => setTimeout(r, 150));
+      const screen = document.querySelector('#screen');
+      /* Measure painted INK, not boxes. An element's rect includes its own
+         padding, so a container with a big padding-bottom (the chat list has
+         150px to clear the composer) looks like it overlaps when the visible
+         text is nowhere near. Text nodes via Range give the real bottom.
+         The composer is inside #screen but pinned over it, so it isn't content. */
+      const rects = [];
+      const walk = document.createTreeWalker(screen, NodeFilter.SHOW_TEXT);
+      for (let n = walk.nextNode(); n; n = walk.nextNode()) {
+        if (!n.nodeValue.trim()) continue;
+        if (n.parentElement.closest('.chat-input:not(.inline)')) continue;
+        const range = document.createRange();
+        range.selectNodeContents(n);
+        const b = range.getBoundingClientRect();
+        if (b.height > 0) rects.push({ bottom: b.bottom, text: n.nodeValue.trim() });
+      }
+      for (const n of screen.querySelectorAll('img, canvas, svg')) {
+        if (n.closest('.chat-input:not(.inline)')) continue;
+        const b = n.getBoundingClientRect();
+        if (b.height > 0) rects.push({ bottom: b.bottom, text: `<${n.tagName.toLowerCase()}>` });
+      }
+      const lowest = rects.reduce((m, r) => (!m || r.bottom > m.bottom ? r : m), null);
+      const bar = document.querySelector('.tabbar').getBoundingClientRect();
+      const composer = document.querySelector('.chat-input:not(.inline)');
+      const cRect = composer ? composer.getBoundingClientRect() : null;
+      return {
+        scrollable: document.body.scrollHeight > window.innerHeight,
+        lastBottom: lowest ? lowest.bottom : 0,
+        lastText: (lowest?.text || '').slice(0, 40),
+        barTop: bar.top,
+        composerTop: cRect ? cRect.top : null,
+      };
+    });
+    const blocker = r.composerTop != null ? Math.min(r.barTop, r.composerTop) : r.barTop;
+    check(`${tab}: content clears the bottom bars (48px inset)`,
+      r.lastBottom <= blocker + 0.5,
+      `${r.scrollable ? 'scrollable, ' : 'fits, '}ends at ${r.lastBottom.toFixed(0)} vs ${blocker.toFixed(0)} — “${r.lastText}”`);
+  }
+  await page.evaluate(() => {
+    document.documentElement.style.removeProperty('--sab');
+    document.querySelector('[data-tab="train"]').click();
+  });
+  await page.waitForTimeout(700);
+
+  /* Sheets cover the tab bar, but still have to clear the gesture bar — a
+     clipped Save button is the same bug one layer up. */
+  await page.evaluate(() => document.documentElement.style.setProperty('--sab', '48px'));
+  await page.evaluate(() => document.querySelector('[data-tab="today"]').click());
+  await page.waitForTimeout(700);
+  await page.evaluate(() => [...document.querySelectorAll('#screen button')]
+    .find(b => b.textContent.trim() === '⚖️ Weight').click());
+  await page.waitForSelector('.sheet');
+  const sh = await page.evaluate(async () => {
+    const sheet = document.querySelector('.sheet');
+    sheet.scrollTop = sheet.scrollHeight;
+    await new Promise(r => setTimeout(r, 150));
+    const box = sheet.getBoundingClientRect();
+    const pad = parseFloat(getComputedStyle(sheet).paddingBottom);
+    const btns = [...sheet.querySelectorAll('button')];
+    const last = btns.length ? btns[btns.length - 1].getBoundingClientRect() : null;
+    return {
+      pad, sheetBottom: box.bottom, viewport: window.innerHeight,
+      lastBtnBottom: last ? last.bottom : null,
+      scrolls: sheet.scrollHeight > sheet.clientHeight,
+    };
+  });
+  check('sheet pads for the gesture bar', sh.pad >= 48, `${sh.pad}px`);
+  check('sheet content scrolls to its end above the gesture bar',
+    sh.lastBtnBottom !== null && sh.lastBtnBottom <= sh.viewport - 48 + 0.5,
+    `${sh.scrolls ? 'scrolls, ' : 'fits, '}last control ends at ${sh.lastBtnBottom?.toFixed(0)}, gesture bar starts at ${sh.viewport - 48}`);
+  await page.evaluate(() => { history.back(); document.documentElement.style.removeProperty('--sab'); });
+  await page.waitForTimeout(300);
+  await page.evaluate(() => document.querySelector('[data-tab="train"]').click());
+  await page.waitForTimeout(700);
 
   /* Vic's walkthrough must not leak the raw [log:…] tag. */
   const brief = await page.evaluate(() => {
