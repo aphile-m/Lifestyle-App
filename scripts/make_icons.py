@@ -53,11 +53,14 @@ def save(img, path, flatten=False):
 v = vic()
 print(f'source figure: {v.width}x{v.height}')
 
-# Adaptive icon: Android zooms the layers 1.5x and clips to the mask, so only
-# the central 66% survives. Vic's stance is wide at the ankles, and at 0.58 his
-# trailing leg caught the circle — 0.52 keeps his shoes inside every mask shape.
+# Adaptive icon: the layer is 108dp and the launcher only ever shows the central
+# 72dp (66.6%), masked to a circle or squircle. So Vic at 0.54 of the canvas
+# fills ~81% of the visible circle — big, with just enough margin that his wide
+# stance clears the mask at the ankles. (android.yml strips the 16.7% inset that
+# @capacitor/assets wraps these layers in; with the inset still applied the PNG
+# would map onto the visible window instead and Vic would come out tiny.)
 save(Image.new('RGB', (1024, 1024), WHITE), 'assets/icon-background.png')
-save(compose(v, 1024, 0.52), 'assets/icon-foreground.png')
+save(compose(v, 1024, 0.54), 'assets/icon-foreground.png')
 
 # Legacy / round launcher icon: masked, but never zoomed like the adaptive pair.
 save(compose(v, 1024, 0.70, bg=WHITE), 'assets/icon-only.png', flatten=True)

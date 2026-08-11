@@ -44,6 +44,27 @@ jobs:
           # Splash stays dark to match the app itself.
           npx @capacitor/assets generate --android --assetPath assets --iconBackgroundColor '#FFFFFF' --iconBackgroundColorDark '#FFFFFF' --splashBackgroundColor '#0A0D08' --splashBackgroundColorDark '#0A0D08'
           npx cap sync android
+      - name: Drop the adaptive-icon inset
+        run: |
+          set -euo pipefail
+          # @capacitor/assets wraps both adaptive layers in <inset 16.7%>, which
+          # maps each PNG onto the central 66.6% of the 108dp layer — exactly the
+          # window the launcher shows. Net effect: the artwork renders small
+          # inside a big white disc, and the corners outside the window are
+          # transparent, so launcher parallax can reveal a gap. Point the layers
+          # at the drawables directly and let the 66.6% window do the cropping.
+          D=android/app/src/main/res/mipmap-anydpi-v26
+          for f in ic_launcher ic_launcher_round; do
+          cat > "$D/$f.xml" <<'XML'
+          <?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@mipmap/ic_launcher_background"/>
+              <foreground android:drawable="@mipmap/ic_launcher_foreground"/>
+          </adaptive-icon>
+          XML
+          done
+          grep -c inset "$D"/ic_launcher.xml && { echo "::error::inset still present"; exit 1; } || true
+          cat "$D/ic_launcher.xml"
       - name: Stable signing + version stamp
         run: |
           set -euo pipefail
