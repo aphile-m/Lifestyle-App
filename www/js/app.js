@@ -17,8 +17,8 @@ import { exerciseAnim, exerciseKey } from './exercise-art.js';
 import { sessionLoad, loadBand, WEEKLY_LOAD_TARGET } from './load.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 59; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '11 Aug 2026, 10:41 SAST';
+const WEB_VERSION = 60; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '11 Aug 2026, 11:28 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -1078,11 +1078,16 @@ async function train(root) {
 
   // Vic's walkthrough: expectations, fit, targets, and how we'll know it worked
   if (p.briefing) {
+    // The briefing comes from the same Vic prompt as chat, so it can end with
+    // [log:…] tags. Run it through the same extractor or the raw tag shows up
+    // as literal text — and turn the tags into the buttons they were meant to be.
+    const brief = extractChatActions(p.briefing);
     root.append(el('div', { class: 'card' },
       el('h2', {}, 'Vic’s walkthrough'),
       el('div', { class: 'row', style: 'gap:12px;align-items:flex-start' },
         vicSprite(52, 'still'),
-        el('p', { class: 'grow', style: 'white-space:pre-wrap;font-size:14.5px' }, p.briefing)),
+        el('p', { class: 'grow', style: 'white-space:pre-wrap;font-size:14.5px' }, brief.text)),
+      brief.keys.length ? el('div', { style: 'margin-top:10px' }, actionChips(brief.keys)) : null,
       el('button', {
         class: 'chip', style: 'margin-top:10px', onclick: () => {
           coachPrefill = 'About my current training block — ';

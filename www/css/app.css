@@ -13,6 +13,13 @@
   --bad: #EF4444;
   --radius: 20px;
   --tabbar-h: 64px;
+  /* The gesture bar sits under the tab bar, so the bar is TALLER than
+     --tabbar-h by the bottom inset. Anything clearing the tab bar must clear
+     --tabbar-total, not --tabbar-h, or the last lines of a screen end up
+     underneath it with no way to scroll them into view.
+     --sab indirects env() so tests can simulate a device with an inset. */
+  --sab: env(safe-area-inset-bottom, 0px);
+  --tabbar-total: calc(var(--tabbar-h) + var(--sab));
 }
 * { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
 html, body { height: 100%; }
@@ -24,14 +31,14 @@ body {
 }
 
 .screen {
-  padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(var(--tabbar-h) + 24px);
+  padding: calc(env(safe-area-inset-top, 0px) + 16px) 16px calc(var(--tabbar-total) + 24px);
   max-width: 640px; margin: 0 auto; min-height: 100%;
 }
 
 /* --- tab bar --- */
 .tabbar {
-  position: fixed; bottom: 0; left: 0; right: 0; height: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px));
-  padding-bottom: env(safe-area-inset-bottom, 0px);
+  position: fixed; bottom: 0; left: 0; right: 0; height: var(--tabbar-total);
+  padding-bottom: var(--sab);
   display: flex; background: #070906; border-top: 1px solid var(--line); z-index: 20;
 }
 .tab {
@@ -90,7 +97,7 @@ body {
 .bubble.me  { background: var(--accent); color: var(--accent-ink); border-bottom-right-radius: 4px; align-self: flex-end; }
 .bubble.thinking { color: var(--ink-dim); font-style: italic; }
 .chat-input {
-  position: fixed; bottom: calc(var(--tabbar-h) + env(safe-area-inset-bottom, 0px)); left: 0; right: 0;
+  position: fixed; bottom: var(--tabbar-total); left: 0; right: 0;
   display: flex; gap: 8px; padding: 10px 12px; background: var(--bg); max-width: 640px; margin: 0 auto; z-index: 10;
 }
 .chat-input input {
