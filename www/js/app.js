@@ -5,7 +5,7 @@ import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, scoreDetail, trendWeight, energyTargets, WEIGHTS } from './score.js';
 import { askVic, vicBriefing, claude, replanWeek } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
-import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, restUpsert, restPatch, restGet, restDelete } from './sync.js';
+import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, sendPasswordReset, consumeRecoveryLink, recoveryLinkError, restUpsert, restPatch, restGet, restDelete } from './sync.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto, estimateMealFromText } from './fuel.js';
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities, stravaLastImport } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney, completeJourney } from './onboarding.js';
@@ -16,8 +16,8 @@ import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim, exerciseKey } from './exercise-art.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 57; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '11 Aug 2026, 08:52 SAST';
+const WEB_VERSION = 58; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '11 Aug 2026, 09:34 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -66,6 +66,11 @@ if (!settings.profile.baselineStart) {
 // complete a Strava OAuth redirect if we arrived with ?code=
 handleStravaRedirect().then(ok => { if (ok) toast('Strava connected.'); }).catch(e => toast('Strava: ' + e.message));
 
+/* Arriving from a password-reset email. Read before the journey starts, because
+   consuming the link signs you in and the boot path branches on that. */
+const recovering = consumeRecoveryLink();
+const recoveryError = recovering ? null : recoveryLinkError();
+
 // the setup journey gates the app until its requirements are met (SPEC §8)
 initOnboarding({
   sheets: {
@@ -76,6 +81,14 @@ initOnboarding({
   onDone: () => { toast('Welcome aboard. Vic’s watching.'); go('today'); },
 });
 (async function boot() {
+  if (recoveryError) toast('⚠️ Reset link: ' + recoveryError);
+  if (recovering) {
+    // Straight to setting the new password — ahead of the setup journey, which
+    // would otherwise gate the screen and strand the recovery session.
+    go(localStorage.getItem('trainer_tab') || 'today');
+    newPasswordSheet();
+    return;
+  }
   if (!settings.load().onboardingDone) {
     // Returning user in a fresh browser: restore from the cloud first, then skip
     // the journey automatically when its requirements are already met in reality.
@@ -2353,6 +2366,21 @@ function cloudSheet() {
       }, 'Change password'),
       el('button', {
         class: 'chip', onclick: async () => {
+          const addr = email.value.trim();
+          if (!addr) return toast('Enter your email address first.');
+          settings.save({ supabaseUrl: url.value.trim(), supabaseAnonKey: key.value.trim(), syncEmail: addr });
+          if (!syncReady()) return toast('Project URL and key first.');
+          status.textContent = 'Sending…';
+          try {
+            await sendPasswordReset(addr);
+            status.textContent = `📧 If ${addr} has an account, a reset link is on its way. ` +
+              'Open it on this device — it lands back here and asks for a new password. ' +
+              'The link is single-use and expires in an hour.';
+          } catch (e) { status.textContent = '⚠️ ' + e.message; }
+        },
+      }, 'Forgot password'),
+      el('button', {
+        class: 'chip', onclick: async () => {
           if (!signedIn()) return toast('Sign in first.');
           status.textContent = 'Restoring…';
           try {
@@ -2373,6 +2401,41 @@ function cloudSheet() {
         },
       }, 'Sync now')),
     status);
+}
+
+/* Landing from a password-reset email: the recovery session is already adopted,
+   so all that's left is choosing the new password. Not dismissable by tapping
+   away — arriving here with nothing to show would be baffling. */
+function newPasswordSheet() {
+  const pass = el('input', { type: 'password', placeholder: 'new password (8+ chars)', autocomplete: 'new-password', name: 'new-password' });
+  const again = el('input', { type: 'password', placeholder: 'type it again', autocomplete: 'new-password' });
+  const status = el('p', { class: 'muted', style: 'margin-top:10px' }, 'Pick something you’ll remember — this link is now used up.');
+  let close;
+  const submit = async () => {
+    if (pass.value.length < 8) return void (status.textContent = '⚠️ At least 8 characters.');
+    if (pass.value !== again.value) return void (status.textContent = '⚠️ The two don’t match.');
+    status.textContent = 'Saving…';
+    try {
+      await changePassword(pass.value);
+      close?.();
+      toast('Password updated ✓ — you’re signed in.');
+      autoCloudPush();
+    } catch (e) {
+      status.textContent = '⚠️ ' + (e.message === 'NOT_SIGNED_IN'
+        ? 'That reset link has expired. Send yourself a fresh one from Me → cloud sync.'
+        : e.message);
+    }
+  };
+  close = sheet('Set a new password',
+    el('p', { class: 'muted', style: 'margin-bottom:12px' },
+      'You opened a password-reset link, so you’re temporarily signed in. Set the new password now.'),
+    el('form', { onsubmit: e => { e.preventDefault(); submit(); } },
+      el('div', { class: 'field' }, el('label', {}, 'New password'), pass),
+      el('div', { class: 'field' }, el('label', {}, 'Confirm'), again),
+      el('input', { type: 'submit', hidden: true })),
+    el('div', { class: 'chips' }, el('button', { class: 'btn', onclick: submit }, 'Save password')),
+    status);
+  pass.focus();
 }
 
 /* Fire-and-forget push after any log write; silent when sync isn't set up */

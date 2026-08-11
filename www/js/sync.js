@@ -50,6 +50,54 @@ export async function signIn(email, password) {
 export async function changePassword(newPassword) {
   await authFetch('user', { password: newPassword }, await token());
 }
+
+/* Password reset, step 1: mail a recovery link back to this app.
+   GoTrue takes redirect_to as a query param, and the target must be listed under
+   Auth → URL Configuration → Redirect URLs in the Supabase dashboard or the link
+   silently falls back to the project's Site URL. */
+export async function sendPasswordReset(email) {
+  const { url, anonKey } = syncConfig();
+  const redirect = location.origin + location.pathname;
+  const res = await fetch(`${url}/auth/v1/recover?redirect_to=${encodeURIComponent(redirect)}`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', apikey: anonKey },
+    body: JSON.stringify({ email }),
+  });
+  if (!res.ok) {
+    const d = await res.json().catch(() => ({}));
+    throw new Error(d.msg || d.error_description || d.message || `Reset failed (${res.status})`);
+  }
+}
+
+/* Password reset, step 2: the emailed link lands back here as
+   #access_token=…&type=recovery. Adopt that short-lived session so the new
+   password can be set, and strip the tokens out of the URL immediately —
+   leaving them in the address bar puts them in history and any share sheet.
+   Returns true when a recovery link was consumed. */
+export function consumeRecoveryLink() {
+  const h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  if (h.get('type') !== 'recovery' || !h.get('access_token')) return false;
+  settings.save({
+    supabaseSession: {
+      access_token: h.get('access_token'),
+      refresh_token: h.get('refresh_token'),
+      expires_at: Math.floor(Date.now() / 1000) + Number(h.get('expires_in') || 3600),
+      // The link doesn't carry the user id, and nothing client-side reads it —
+      // rows get their user_id from auth.uid() server-side under RLS.
+      user_id: null,
+    },
+  });
+  history.replaceState(null, '', location.pathname + location.search);
+  return true;
+}
+
+/* The same landing can carry an error instead (expired or already-used link). */
+export function recoveryLinkError() {
+  const h = new URLSearchParams((location.hash || '').replace(/^#/, ''));
+  const e = h.get('error_description') || h.get('error');
+  if (e) history.replaceState(null, '', location.pathname + location.search);
+  return e ? decodeURIComponent(e.replace(/\+/g, ' ')) : null;
+}
 function saveSession(d) {
   settings.save({
     supabaseSession: {

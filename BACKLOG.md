@@ -36,6 +36,11 @@ each item implements.
 - [x] **Health Connect (native)** — shipped android-v5: @capgo/capacitor-health pulls
       steps, sleep duration and resting HR automatically each launch. Sleep score /
       Body Battery stay manual (Garmin doesn't share them with Health Connect).
+- [x] **Forgot password** — shipped v58: "Forgot password" in the cloud sync sheet mails
+      a Supabase recovery link back to the app; the link lands on a "Set a new password"
+      screen ahead of the setup-journey gate, and the tokens are stripped from the URL on
+      arrival. Covered by `scripts/test-reset.js`. **Needs the app URL added to Supabase
+      → Auth → URL Configuration → Redirect URLs.**
 - [ ] **Impact analysis engine** — 5×5/90-day behaviour insights + monthly impact report
       (SPEC §3.3); needs a few weeks of journal data to be meaningful.
 - [ ] **Readiness score & soreness body map** — gates daily plan intensity (SPEC §6).
