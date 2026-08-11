@@ -5,6 +5,7 @@
    card (score only) and the Insights screen (drivers, gaps, tips). */
 
 import { logs, settings } from './store.js';
+import { weeklyLoad, loadBand, fmtMinutes, WEEKLY_LOAD_TARGET } from './load.js';
 
 /* Personal energy & protein targets — transparent, standard sports-science:
    BMR via Mifflin-St Jeor, activity factor from measured steps + training
@@ -80,19 +81,28 @@ const driver = (label, value, score, tip) => ({ label, value, score, tip });
 
 /* MOVE — anchored to WHO physical-activity guidelines:
    150 min/wk moderate aerobic + 2 strength sessions/wk; steps target 8k/day
-   (mortality benefit plateaus ~7.5–8.5k, Paluch 2022 meta-analysis). */
+   (mortality benefit plateaus ~7.5–8.5k, Paluch 2022 meta-analysis).
+   Aerobic volume is measured as training load, not minutes: WHO's own
+   moderate/vigorous trade (150 min ↔ 75 min) falls out of the load curve, so
+   150 AU is the same guideline without pretending a golf hour equals a boxing
+   hour. See load.js. */
 function pillarMove(workouts, metrics = []) {
   const drivers = [];
   const isStrength = w => /strength|weight|gym|lift|resistance|dumbbell/i.test(w.desc || '') ||
     (w.detail?.type || '').includes('strength');
   const strength = workouts.filter(isStrength).length;
-  const cardioMin = Math.round(workouts.filter(w => !isStrength(w))
-    .reduce((a, w) => a + (w.detail?.moving_time_s ? w.detail.moving_time_s / 60 : 40), 0));
   if (workouts.length) {
     drivers.push(driver('Strength sessions', `${strength} of 2 / wk`, clamp(strength / 2 * 100),
       'WHO guideline is 2 strength sessions a week — even 20 focused minutes with your dumbbells counts.'));
-    drivers.push(driver('Cardio minutes', `${cardioMin} of 150 min`, clamp(cardioMin / 150 * 100),
-      'Aim for 150 moderate minutes a week — three 25-min walks close most of a typical gap.'));
+    const { total, minutes, rows } = weeklyLoad(workouts);
+    const hardest = [...rows].sort((a, b) => b.au - a.au)[0];
+    drivers.push(driver('Training load', `${total} of ${WEEKLY_LOAD_TARGET} AU (${fmtMinutes(minutes)} active)`,
+      clamp(Math.round(total / WEEKLY_LOAD_TARGET * 100)),
+      hardest
+        ? `Load weights each minute by how hard it was, so intensity counts, not just hours. ` +
+          `Your biggest was “${hardest.w.desc}” at ${hardest.au} AU (${loadBand(hardest.au)}). ` +
+          'Short and hard closes a gap faster than long and easy.'
+        : 'Load weights each minute by how hard it was — 150 AU a week matches the WHO aerobic guideline.'));
   }
   const steps = metrics.map(m => m.steps).filter(v => v != null);
   if (steps.length) {

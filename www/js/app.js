@@ -14,10 +14,11 @@ import { reminders, applyReminders, remindersSummary, notifyNative, requestWebPe
 import { vicAvatar } from './vic-avatar.js';
 import { vicSprite } from './vic-sprite.js';
 import { exerciseAnim, exerciseKey } from './exercise-art.js';
+import { sessionLoad, loadBand, WEEKLY_LOAD_TARGET } from './load.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 58; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '11 Aug 2026, 09:34 SAST';
+const WEB_VERSION = 59; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '11 Aug 2026, 10:41 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -1368,7 +1369,9 @@ const EFFORT_STARS = [
 const starsFromRpe = r => Math.min(5, Math.max(1, Math.round((+r || 6) / 2)));
 const starTxt = r => '★'.repeat(starsFromRpe(r));
 
-function starRow(def = 3) {
+/* onChange fires on tap only, never during construction — callers use it to
+   recompute things that read this row's value, which isn't assigned yet here. */
+function starRow(def = 3, onChange = null) {
   let val = def;
   const btns = [1, 2, 3, 4, 5].map(() => el('button', { class: 'star' }, '★'));
   const label = el('p', { class: 'muted starlab' });
@@ -1377,7 +1380,7 @@ function starRow(def = 3) {
     const [name, desc] = EFFORT_STARS[val - 1];
     label.textContent = `${name} — ${desc}`;
   };
-  btns.forEach((b, idx) => b.addEventListener('click', () => { val = idx + 1; paint(); }));
+  btns.forEach((b, idx) => b.addEventListener('click', () => { val = idx + 1; paint(); onChange?.(); }));
   paint();
   return { row: el('div', {}, el('div', { class: 'stars' }, ...btns), label), value: () => val * 2 };
 }
@@ -2077,14 +2080,33 @@ function confirmMealSheet(desc, source, est, forDay = todayIso()) {
 
 function logWorkoutSheet() {
   const input = el('input', { placeholder: 'e.g. Strength A, 5k easy run…' });
-  const effort = starRow(3);
+  const mins = el('input', { type: 'number', inputmode: 'numeric', step: '5', min: '1', value: 45 });
+  const hr = el('input', { type: 'number', inputmode: 'numeric', step: '1', min: '40', max: '220', placeholder: 'optional, from your watch' });
+  const preview = el('p', { class: 'muted loadhint', style: 'margin-top:4px;font-size:13px' });
+  const row = () => ({
+    desc: input.value.trim(), rpe: effort.value(),
+    detail: { minutes: parseInt(mins.value) || 45, avg_hr: parseInt(hr.value) || null },
+  });
+  /* Live readout: seeing "4h golf = 69 AU" next to "1h boxing = 100 AU" is the
+     whole point of the change, so show the number as it's being entered. */
+  const refresh = () => {
+    const l = sessionLoad(row());
+    preview.textContent = `≈ ${l.au} load (${loadBand(l.au)}) — ${Math.round(l.au / WEEKLY_LOAD_TARGET * 100)}% of a week, ` +
+      `judged on ${l.basis}.`;
+  };
+  const effort = starRow(3, refresh);
+  [input, mins, hr].forEach(i => i.addEventListener('input', refresh));
+  refresh();
   const close = sheet('Log a session',
     el('div', { class: 'field' }, el('label', {}, 'What was it?'), input),
+    el('div', { class: 'field' }, el('label', {}, 'How long? (minutes)'), mins),
     el('div', { class: 'field' }, el('label', {}, 'How hard did it feel?'), effort.row),
+    el('div', { class: 'field' }, el('label', {}, 'Average heart rate'), hr),
+    preview,
     el('button', {
-      class: 'btn', onclick: async () => {
+      class: 'btn', style: 'margin-top:12px', onclick: async () => {
         if (!input.value.trim()) return toast('Name the session.');
-        await logs.add('workouts', { desc: input.value.trim(), rpe: effort.value() });
+        await logs.add('workouts', row());
         close(); toast('Session logged. Vic sees it.'); trySync(); goCurrent('today');
       },
     }, 'Save'));

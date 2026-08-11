@@ -41,6 +41,11 @@ each item implements.
       screen ahead of the setup-journey gate, and the tokens are stripped from the URL on
       arrival. Covered by `scripts/test-reset.js`. **Needs the app URL added to Supabase
       → Auth → URL Configuration → Redirect URLs.**
+- [x] **Intensity-weighted training load** — shipped v59: Move scored on Banister TRIMP
+      (`load.js`) instead of raw minutes, so 4h of golf (69 AU) ranks below 1h of boxing
+      (100 AU). Falls back HR → effort stars → activity name, and always says which. The
+      manual log now captures duration and optional average HR with a live readout.
+      Covered by `scripts/test-load.js`.
 - [ ] **Impact analysis engine** — 5×5/90-day behaviour insights + monthly impact report
       (SPEC §3.3); needs a few weeks of journal data to be meaningful.
 - [ ] **Readiness score & soreness body map** — gates daily plan intensity (SPEC §6).

@@ -4,6 +4,7 @@
 
 import { settings, logs } from './store.js';
 import { weeklyScore } from './score.js';
+import { weeklyLoad, loadBand, fmtMinutes, WEEKLY_LOAD_TARGET } from './load.js';
 import { activePlan, sessionForToday, latestMeasurement, latestBenchmark } from './plan.js';
 
 const MODEL = 'claude-opus-4-8';
@@ -92,6 +93,17 @@ async function buildContext() {
     lines.push(`Weight entries last 28d: ${weights.length}, latest ${latest.kg} kg.`);
   }
   lines.push(`Workouts logged last 7d: ${workouts.length}.`);
+  if (workouts.length) {
+    // Training load, not minutes — so you can tell the user straight that four
+    // easy hours did less for them than one hard one. AU = Banister TRIMP;
+    // 150/wk matches the WHO aerobic guideline. Basis says how it was judged,
+    // so don't present an estimate as if it were measured.
+    const { total, minutes, rows } = weeklyLoad(workouts);
+    lines.push(`Training load last 7d: ${total} AU of a ${WEEKLY_LOAD_TARGET} AU target, over ${fmtMinutes(minutes)} active. ` +
+      'Load weights each minute by intensity, so a long easy session scores below a short hard one.');
+    lines.push('Per session (newest first): ' + [...rows].reverse().slice(0, 8)
+      .map(r => `${r.w.desc} — ${r.au} AU (${loadBand(r.au)}) over ${fmtMinutes(r.minutes)}, judged on ${r.basis}`).join('; ') + '.');
+  }
   // strength memory: newest set data per exercise so load/effort advice is grounded
   const lifts = await logs.recent('workouts', 28);
   lifts.sort((a, b) => (b.ts || '').localeCompare(a.ts || ''));
