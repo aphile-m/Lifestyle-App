@@ -5,7 +5,8 @@ import { settings, logs, defaultProfile } from './store.js';
 import { weeklyScore, scoreDetail, trendWeight, energyTargets, WEIGHTS } from './score.js';
 import { askVic, vicBriefing, claude, replanWeek } from './vic.js';
 import { generatePlan, activePlan, sessionForToday, latestMeasurement, latestBenchmark, daysSince } from './plan.js';
-import { syncReady, signedIn, signUp, signIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, changePassword, sendPasswordReset, consumeRecoveryLink, recoveryLinkError, restUpsert, restPatch, restGet, restDelete } from './sync.js';
+import { syncReady, signedIn, pushAll, pullAll, pushProfile, adoptCloudSetup, syncConfig, msSignIn, msSignOut, msAccount, handleMsRedirect, cloudAll, cloudUpsert, cloudPatch, cloudDelete } from './sync.js';
+import { importFromSupabase } from './legacy-supabase.js';
 import { fetchRecipes, estimateNutrition, draftMealPlan, agreeMealPlan, currentMealPlan, downscaleImage, estimateMealFromPhoto, estimateMealFromText } from './fuel.js';
 import { stravaConfigured, stravaConnected, connectStrava, handleStravaRedirect, completePendingStrava, importActivities, stravaLastImport } from './strava.js';
 import { initOnboarding, journeyActive, renderJourney, startJourney, completeJourney } from './onboarding.js';
@@ -17,8 +18,8 @@ import { exerciseAnim, exerciseKey } from './exercise-art.js';
 import { sessionLoad, loadBand, WEEKLY_LOAD_TARGET } from './load.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 61; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '11 Aug 2026, 12:05 SAST';
+const WEB_VERSION = 62; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '11 Aug 2026, 13:40 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -67,10 +68,12 @@ if (!settings.profile.baselineStart) {
 // complete a Strava OAuth redirect if we arrived with ?code=
 handleStravaRedirect().then(ok => { if (ok) toast('Strava connected.'); }).catch(e => toast('Strava: ' + e.message));
 
-/* Arriving from a password-reset email. Read before the journey starts, because
-   consuming the link signs you in and the boot path branches on that. */
-const recovering = consumeRecoveryLink();
-const recoveryError = recovering ? null : recoveryLinkError();
+/* Completing a Microsoft sign-in redirect. Runs alongside the Strava handler
+   above — both come back with ?code=, and each ignores the other's by checking
+   the state parameter. */
+let msRedirectError = null;
+const msRedirect = handleMsRedirect()
+  .catch(e => { msRedirectError = e.message; return false; });
 
 // the setup journey gates the app until its requirements are met (SPEC §8)
 initOnboarding({
@@ -82,13 +85,11 @@ initOnboarding({
   onDone: () => { toast('Welcome aboard. Vic’s watching.'); go('today'); },
 });
 (async function boot() {
-  if (recoveryError) toast('⚠️ Reset link: ' + recoveryError);
-  if (recovering) {
-    // Straight to setting the new password — ahead of the setup journey, which
-    // would otherwise gate the screen and strand the recovery session.
-    go(localStorage.getItem('trainer_tab') || 'today');
-    newPasswordSheet();
-    return;
+  const justSignedIn = await msRedirect;
+  if (msRedirectError) toast('⚠️ Microsoft sign-in: ' + msRedirectError);
+  if (justSignedIn) {
+    toast(`Signed in as ${msAccount()?.email || 'Microsoft'} ✓`);
+    try { await pullAll(); await pushAll(); await pushProfile(); } catch {}
   }
   if (!settings.load().onboardingDone) {
     // Returning user in a fresh browser: restore from the cloud first, then skip
@@ -269,13 +270,13 @@ async function pushWeeklyScore(aggregate, pillars) {
   if (aggregate === null || !syncReady() || !signedIn()) return;
   const monday = (d => { d.setDate(d.getDate() - ((d.getDay() + 6) % 7)); return d.toISOString().slice(0, 10); })(new Date());
   try {
-    await restUpsert('trainer_scores', [{ week_start: monday, aggregate, pillars }], 'user_id,week_start');
+    await cloudUpsert('trainer_scores', [{ week_start: monday, aggregate, pillars }], ['week_start']);
     const start = settings.profile.baselineStart;
     if (start && (Date.now() - Date.parse(start)) / 86400e3 >= 14) {
-      const rows = await restGet('trainer_scores', 'select=id,week_start,is_baseline&order=week_start&limit=1');
-      if (rows[0] && !rows[0].is_baseline) {
-        const any = await restGet('trainer_scores', 'select=id&is_baseline=eq.true&limit=1');
-        if (!any.length) await restPatch('trainer_scores', `id=eq.${rows[0].id}`, { is_baseline: true });
+      // earliest week becomes the locked baseline, once, if none is set yet
+      const rows = (await cloudAll('trainer_scores')).sort((a, b) => a.week_start.localeCompare(b.week_start));
+      if (rows.length && !rows.some(r => r.is_baseline)) {
+        await cloudPatch('trainer_scores', r => r.week_start === rows[0].week_start, { is_baseline: true });
       }
     }
   } catch {}
@@ -436,7 +437,8 @@ async function insightsScreen() {
   // score history from the cloud (weekly rows; earliest locked row = baseline)
   let history_ = [];
   try {
-    if (signedIn()) history_ = await restGet('trainer_scores', 'select=week_start,aggregate,pillars,is_baseline&order=week_start');
+    if (signedIn()) history_ = (await cloudAll('trainer_scores'))
+      .sort((a, b) => String(a.week_start).localeCompare(String(b.week_start)));
   } catch {}
   history_ = history_.filter(r => r.aggregate != null).slice(-12);
   const baselineRow = history_.find(r => r.is_baseline) || null;
@@ -1981,7 +1983,7 @@ function mealDetailSheet(f) {
       el('button', {
         class: 'chip', onclick: async () => {
           await logs.del('foods', f.id);
-          if (signedIn()) { try { await restDelete('trainer_food_logs', 'ts=eq.' + encodeURIComponent(f.ts)); } catch {} }
+          if (signedIn()) { try { await cloudDelete('trainer_food_logs', r => r.ts === f.ts); } catch {} }
           close(); toast('Meal removed.'); goCurrent('fuel');
         },
       }, '🗑 Remove')));
@@ -2326,141 +2328,88 @@ function apiKeySheet() {
 
 function cloudSheet() {
   const s = settings.load();
-  const cfg = syncConfig();
-  const url = el('input', { placeholder: 'https://xxxx.supabase.co', value: cfg.url });
-  const key = el('input', { type: 'password', placeholder: 'anon / publishable key', value: cfg.anonKey });
-  const email = el('input', { type: 'email', placeholder: 'you@example.com', value: s.syncEmail || 'aphilem@gmail.com', autocomplete: 'username', name: 'email' });
-  const pass = el('input', { type: 'password', placeholder: 'password (min 6 chars)', autocomplete: 'current-password', name: 'password' });
-  const status = el('p', { class: 'muted', style: 'margin-top:10px' },
-    signedIn() ? `Signed in. Last sync: ${s.lastSync ? s.lastSync.slice(0, 16).replace('T', ' ') : 'never'}` : 'Not signed in.');
-  const doAuth = fn => async () => {
-    settings.save({ supabaseUrl: url.value.trim(), supabaseAnonKey: key.value.trim(), syncEmail: email.value.trim() });
-    if (!syncReady()) return toast('Project URL and key first.');
-    if (!pass.value) return toast('Enter your password first.');
-    try {
-      await fn(email.value.trim(), pass.value);
-      if (!signedIn()) {
-        // Signup without a session: the email either already has an account in this
-        // project or needs confirmation — either way, Sign in is the next step.
-        status.textContent = 'No session yet. If this email already has an account here, tap Sign in with its password. Otherwise check your inbox for a confirmation link, then Sign in.';
-        return;
-      }
-      status.textContent = 'Signed in ✓ — syncing…';
-      completePendingStrava().then(ok => { if (ok) toast('Strava connected ✓'); }).catch(e => toast('Strava: ' + e.message));
-      // signing in mid-journey: restore from the cloud and skip what's already done
-      if (journeyActive()) {
-        try {
-          await pullAll(); // includes adoptCloudSetup: API key + Strava come back too
-          const [meas, bench, w] = await Promise.all([latestMeasurement(), latestBenchmark(), logs.all('weights')]);
-          if (settings.apiKey && w.length && meas && bench) {
-            settings.save({ profileConfirmed: true });
-            completeJourney();
-            toast('Welcome back — setup restored from the cloud ✓');
-          }
-        } catch {}
-      }
-      const counts = await pushAll(); await pushProfile();
-      status.textContent = 'Synced: ' + (Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new');
-      toast('Cloud sync on.');
-      if (journeyActive()) renderJourney();
-    } catch (e) {
-      status.textContent = '⚠️ ' + (e.message === 'NOT_SIGNED_IN' ? 'Not signed in yet — tap Sign in with your password.' : e.message);
-    }
+  const tenant = el('input', { placeholder: 'Directory (tenant) ID', value: s.msTenant || '' });
+  const client = el('input', { placeholder: 'Application (client) ID', value: s.msClientId || '' });
+  const status = el('p', { class: 'muted', style: 'margin-top:10px' });
+  const acct = msAccount();
+  const paint = () => {
+    status.textContent = signedIn()
+      ? `Signed in as ${acct?.email || 'Microsoft account'}. Last sync: ${settings.load().lastSync ? settings.load().lastSync.slice(0, 16).replace('T', ' ') : 'never'}`
+      : 'Not signed in.';
   };
-  sheet('Cloud sync (Supabase)',
+  paint();
+  const saveIds = () => settings.save({ msTenant: tenant.value.trim(), msClientId: client.value.trim() });
+
+  const close = sheet('Cloud sync (Microsoft 365)',
     el('p', { class: 'muted', style: 'margin-bottom:12px' },
-      'Backs up your logs to your own Supabase project and syncs web ↔ Android. Fill these once — the values live only on this device.'),
-    el('div', { class: 'field' }, el('label', {}, 'Project URL'), url),
-    el('div', { class: 'field' }, el('label', {}, 'Publishable (anon) key'), key),
-    // a real <form> with a submit path gives Android's password manager its
-    // strongest save/autofill signal (still best-effort inside a WebView)
-    el('form', {
-      onsubmit: e => { e.preventDefault(); doAuth(signIn)(); },
-    },
-      el('div', { class: 'field' }, el('label', {}, 'Email'), email),
-      el('div', { class: 'field' }, el('label', {}, 'Password'), pass),
-      el('input', { type: 'submit', hidden: true })),
+      'Your logs live in a folder that belongs to this app inside your OneDrive. ' +
+      'The app asks for the app-folder permission only, so it cannot read anything else in your Microsoft account.'),
+    el('div', { class: 'field' }, el('label', {}, 'Directory (tenant) ID'), tenant),
+    el('div', { class: 'field' }, el('label', {}, 'Application (client) ID'), client),
     el('div', { class: 'chips' },
-      el('button', { class: 'chip', onclick: doAuth(signUp) }, 'Create account'),
-      el('button', { class: 'chip', onclick: doAuth(signIn) }, 'Sign in'),
       el('button', {
-        class: 'chip', onclick: async () => {
-          if (!signedIn()) return toast('Sign in first.');
-          if (!pass.value || pass.value.length < 8) return toast('Type a NEW password (8+ chars) in the password field first.');
-          try { await changePassword(pass.value); status.textContent = 'Password changed ✓'; pass.value = ''; }
-          catch (e) { status.textContent = '⚠️ ' + e.message; }
+        class: 'btn', onclick: async () => {
+          saveIds();
+          if (!syncReady()) return toast('Paste the application (client) ID first.');
+          status.textContent = 'Redirecting to Microsoft…';
+          try { await msSignIn(); } catch (e) { status.textContent = '⚠️ ' + e.message; }
         },
-      }, 'Change password'),
-      el('button', {
+      }, signedIn() ? '🔄 Sign in again' : '🔐 Sign in with Microsoft'),
+      signedIn() ? el('button', {
         class: 'chip', onclick: async () => {
-          const addr = email.value.trim();
-          if (!addr) return toast('Enter your email address first.');
-          settings.save({ supabaseUrl: url.value.trim(), supabaseAnonKey: key.value.trim(), syncEmail: addr });
-          if (!syncReady()) return toast('Project URL and key first.');
-          status.textContent = 'Sending…';
-          try {
-            await sendPasswordReset(addr);
-            status.textContent = `📧 If ${addr} has an account, a reset link is on its way. ` +
-              'Open it on this device — it lands back here and asks for a new password. ' +
-              'The link is single-use and expires in an hour.';
-          } catch (e) { status.textContent = '⚠️ ' + e.message; }
-        },
-      }, 'Forgot password'),
-      el('button', {
-        class: 'chip', onclick: async () => {
-          if (!signedIn()) return toast('Sign in first.');
           status.textContent = 'Restoring…';
           try {
             const counts = await pullAll();
             const total = Object.values(counts).reduce((a, b) => a + b, 0);
-            status.textContent = total ? `Restored ${total} entries from the cloud.` : 'Nothing to restore — local data already present.';
+            status.textContent = total ? `Restored ${total} entries from OneDrive.` : 'Nothing to restore — local data already present.';
           } catch (e) { status.textContent = '⚠️ ' + e.message; }
         },
-      }, 'Restore from cloud'),
-      el('button', {
+      }, 'Restore from cloud') : null,
+      signedIn() ? el('button', {
         class: 'chip', onclick: async () => {
+          status.textContent = 'Syncing…';
           try {
-            const counts = await pushAll();
+            const counts = await pushAll(); await pushProfile();
             status.textContent = 'Synced: ' + (Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ') || 'nothing new');
-          } catch (e) {
-            status.textContent = '⚠️ ' + (e.message === 'NOT_SIGNED_IN' ? 'Sign in first.' : e.message);
-          }
+          } catch (e) { status.textContent = '⚠️ ' + e.message; }
         },
-      }, 'Sync now')),
+      }, 'Sync now') : null,
+      signedIn() ? el('button', {
+        class: 'chip', onclick: () => { msSignOut(); close(); toast('Signed out of Microsoft.'); goCurrent('me'); },
+      }, 'Sign out') : null,
+      el('button', { class: 'chip', onclick: migrateSheet }, '📦 Import from Supabase')),
     status);
 }
 
-/* Landing from a password-reset email: the recovery session is already adopted,
-   so all that's left is choosing the new password. Not dismissable by tapping
-   away — arriving here with nothing to show would be baffling. */
-function newPasswordSheet() {
-  const pass = el('input', { type: 'password', placeholder: 'new password (8+ chars)', autocomplete: 'new-password', name: 'new-password' });
-  const again = el('input', { type: 'password', placeholder: 'type it again', autocomplete: 'new-password' });
-  const status = el('p', { class: 'muted', style: 'margin-top:10px' }, 'Pick something you’ll remember — this link is now used up.');
-  let close;
-  const submit = async () => {
-    if (pass.value.length < 8) return void (status.textContent = '⚠️ At least 8 characters.');
-    if (pass.value !== again.value) return void (status.textContent = '⚠️ The two don’t match.');
-    status.textContent = 'Saving…';
-    try {
-      await changePassword(pass.value);
-      close?.();
-      toast('Password updated ✓ — you’re signed in.');
-      autoCloudPush();
-    } catch (e) {
-      status.textContent = '⚠️ ' + (e.message === 'NOT_SIGNED_IN'
-        ? 'That reset link has expired. Send yourself a fresh one from Me → cloud sync.'
-        : e.message);
-    }
-  };
-  close = sheet('Set a new password',
+/* One-time move of the old Supabase data. Reads from the source of record
+   rather than assuming this device already holds every row, and lands
+   everything in IndexedDB as unsynced so the normal push writes it out. */
+function migrateSheet() {
+  const email = el('input', { type: 'email', placeholder: 'you@example.com', value: settings.load().syncEmail || 'aphilem@gmail.com' });
+  const pass = el('input', { type: 'password', placeholder: 'your old Supabase password', autocomplete: 'current-password' });
+  const status = el('p', { class: 'muted', style: 'margin-top:10px' },
+    'Runs safely more than once — rows already here are skipped.');
+  const close = sheet('Import from Supabase',
     el('p', { class: 'muted', style: 'margin-bottom:12px' },
-      'You opened a password-reset link, so you’re temporarily signed in. Set the new password now.'),
-    el('form', { onsubmit: e => { e.preventDefault(); submit(); } },
-      el('div', { class: 'field' }, el('label', {}, 'New password'), pass),
-      el('div', { class: 'field' }, el('label', {}, 'Confirm'), again),
-      el('input', { type: 'submit', hidden: true })),
-    el('div', { class: 'chips' }, el('button', { class: 'btn', onclick: submit }, 'Save password')),
+      'Copies your old logs out of Supabase and into OneDrive. Nothing in Supabase is changed or deleted, so this is reversible.'),
+    el('div', { class: 'field' }, el('label', {}, 'Supabase email'), email),
+    el('div', { class: 'field' }, el('label', {}, 'Supabase password'), pass),
+    el('button', {
+      class: 'btn', onclick: async () => {
+        if (!signedIn()) return toast('Sign in with Microsoft first — the import pushes straight to OneDrive.');
+        if (!pass.value) return toast('Enter your old Supabase password.');
+        try {
+          const { counts, profile } = await importFromSupabase(email.value.trim(), pass.value, m => { status.textContent = m; });
+          const imported = Object.values(counts).reduce((a, b) => a + b, 0);
+          status.textContent = `Imported ${imported} rows — pushing to OneDrive…`;
+          if (profile) settings.save({ profile: { ...defaultProfile(), ...settings.profile, ...profile } });
+          await pushAll(); await pushProfile();
+          status.textContent = `✅ ${imported} rows moved to OneDrive. ` +
+            Object.entries(counts).filter(([, n]) => n).map(([k, n]) => `${k} ${n}`).join(', ');
+          toast('Migration complete.');
+        } catch (e) { status.textContent = '⚠️ ' + e.message; }
+      },
+    }, 'Import my data'),
     status);
   pass.focus();
 }

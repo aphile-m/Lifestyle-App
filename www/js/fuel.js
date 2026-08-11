@@ -3,19 +3,23 @@
 
 import { settings, logs } from './store.js';
 import { claude, parseJson } from './vic.js';
-import { restGet, restUpsert, restPatch, signedIn } from './sync.js';
+import { cloudAll, cloudUpsert, cloudPatch, signedIn } from './sync.js';
 
 /* ---------- recipes & pantry (shared with the cookbook) ---------- */
+/* Sorting moved client-side: the store is a JSON file now, not a queryable
+   table, and these lists are tens of rows. */
+const byTitle = (a, b) => String(a.title || '').localeCompare(String(b.title || ''));
+const byName = (a, b) => String(a.name || '').localeCompare(String(b.name || ''));
 export async function fetchRecipes() {
-  return restGet('shared_recipes', 'select=id,title,nutrition,source_app&order=title');
+  return (await cloudAll('shared_recipes')).sort(byTitle);
 }
 export async function fetchPantry() {
-  return restGet('shared_pantry_items', 'select=name,quantity,category&order=name');
+  return (await cloudAll('shared_pantry_items')).sort(byName);
 }
 
 /* AI nutrition estimate for one recipe, cached to shared_recipes.nutrition */
 export async function estimateNutrition(recipeId) {
-  const [full] = await restGet('shared_recipes', `select=id,title,recipe&id=eq.${recipeId}`);
+  const full = (await cloudAll('shared_recipes')).find(r => String(r.id) === String(recipeId));
   if (!full) throw new Error('Recipe not found.');
   const text = await claude(
     `Estimate per-serving nutrition for this recipe. Return ONLY JSON: ` +
@@ -23,7 +27,7 @@ export async function estimateNutrition(recipeId) {
     `Recipe "${full.title}":\n${JSON.stringify(full.recipe).slice(0, 6000)}`,
     { maxTokens: 300 });
   const nutrition = parseJson(text);
-  await restPatch('shared_recipes', `id=eq.${recipeId}`, { nutrition });
+  await cloudPatch('shared_recipes', r => String(r.id) === String(recipeId), { nutrition });
   return nutrition;
 }
 
@@ -60,11 +64,11 @@ export async function draftMealPlan() {
 export async function agreeMealPlan(plan) {
   await logs.add('mealplans', { plan, agreed: true });
   if (!signedIn()) return { pushed: false };
-  await restUpsert('shared_meal_plans',
+  await cloudUpsert('shared_meal_plans',
     [{ week_start: plan.week_start, plan: plan.days, agreed_at: new Date().toISOString() }],
-    'user_id,week_start');
+    ['week_start']);
   const items = (plan.shopping || []).map(s => ({ name: s.name, quantity: s.quantity || null, source_app: 'trainer' }));
-  if (items.length) await restUpsert('shared_shopping_items', items);
+  if (items.length) await cloudUpsert('shared_shopping_items', items, ['name']);
   return { pushed: true, items: items.length };
 }
 

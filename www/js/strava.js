@@ -41,7 +41,12 @@ export function connectStrava() {
 
 /* Call on boot: completes the OAuth redirect if we came back with ?code= */
 export async function handleStravaRedirect() {
-  const code = new URLSearchParams(location.search).get('code');
+  const params = new URLSearchParams(location.search);
+  const code = params.get('code');
+  // Microsoft sign-in returns to this same URL with ?code= too. It tags its
+  // redirect with a "ms." state; without this check whichever handler ran
+  // first would consume the other's code and both flows would break.
+  if ((params.get('state') || '').startsWith('ms.')) return false;
   if (!code || !stravaConfigured()) return false;
   history.replaceState(null, '', location.pathname); // strip ?code= from the URL
   if (!signedIn()) {
