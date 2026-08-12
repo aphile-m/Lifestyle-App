@@ -140,9 +140,22 @@ body {
   display: flex; align-items: flex-end; justify-content: center;
 }
 .sheet {
-  background: var(--bg); border-radius: 20px 20px 0 0; padding: 20px 16px calc(20px + var(--sab));
+  background: var(--bg); border-radius: 20px 20px 0 0; padding: 8px 16px calc(20px + var(--sab));
   width: 100%; max-width: 640px; max-height: 88vh; overflow-y: auto;
+  /* pan-y keeps the sheet's own scrolling native; the drag handler opts out
+     per-gesture once it decides a downward drag is a dismiss */
+  touch-action: pan-y;
+  transition: transform .18s ease-out;
 }
+/* while the finger is down the sheet must track it exactly — a transition here
+   would add lag and make the drag feel broken */
+.sheet.dragging { transition: none; }
+/* the affordance: without it, nobody knows the sheet can be pulled down */
+.sheet-grab {
+  width: 40px; height: 4px; border-radius: 999px; background: var(--card-2);
+  margin: 4px auto 12px; flex: none; cursor: grab;
+}
+.sheet.dragging .sheet-grab { cursor: grabbing; }
 .sheet h3 { margin-bottom: 14px; }
 
 .did-you-know {

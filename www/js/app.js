@@ -18,8 +18,8 @@ import { exerciseAnim, exerciseKey } from './exercise-art.js';
 import { sessionLoad, loadBand, WEEKLY_LOAD_TARGET } from './load.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 62; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '11 Aug 2026, 13:40 SAST';
+const WEB_VERSION = 63; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '11 Aug 2026, 15:10 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)

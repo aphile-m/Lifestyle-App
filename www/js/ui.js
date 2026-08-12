@@ -46,10 +46,87 @@ export function sheet(title, ...children) {
   };
   window.addEventListener('popstate', doClose);
   const close = () => { if (!closed) history.back(); };
-  const box = el('div', { class: 'sheet' }, el('h3', {}, title), ...children);
+  const box = el('div', { class: 'sheet' },
+    el('div', { class: 'sheet-grab', 'aria-hidden': 'true' }),
+    el('h3', {}, title), ...children);
   const overlay = el('div', { class: 'overlay', onclick: e => { if (e.target === overlay) close(); } }, box);
   root.replaceChildren(overlay);
+  dragToDismiss(box, overlay, close);
   return close;
+}
+
+/* A sheet covering the app must come back down the way it went up — dragging it
+   is the gesture people reach for first, and without it the sheet feels stuck.
+   Backdrop tap and the back button still work; this is an addition, not a
+   replacement.
+
+   The fiddly part is coexisting with the sheet's own scrolling: a drag may only
+   begin when the content is already scrolled to the top, and only once the
+   finger has committed to a vertical downward move. Until then every event is
+   left alone so scrolling behaves normally. */
+function dragToDismiss(box, overlay, close) {
+  const CLOSE_FRACTION = 1 / 3;  // past a third of its height, let it go
+  const FLICK = 0.5;             // px/ms — a fast flick closes from anywhere
+  const SLOP = 6;                // px before a touch counts as a drag, not a tap
+  let startY = 0, startX = 0, dy = 0, dragging = false, decided = false, t0 = 0;
+
+  const setY = y => {
+    box.style.transform = y ? `translateY(${y}px)` : '';
+    // fade the backdrop with the drag so the gesture feels connected to it
+    overlay.style.background = `rgba(2, 6, 23, ${(0.8 * (1 - Math.min(1, y / (box.offsetHeight || 1)))).toFixed(3)})`;
+  };
+  const reset = () => {
+    box.classList.remove('dragging');
+    box.style.transform = '';
+    overlay.style.background = '';
+  };
+
+  box.addEventListener('pointerdown', e => {
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    // don't hijack a drag that starts on a control
+    if (e.target.closest('input, select, textarea, button, a')) return;
+    startY = e.clientY; startX = e.clientX;
+    dy = 0; dragging = false; decided = false; t0 = e.timeStamp;
+  });
+
+  box.addEventListener('pointermove', e => {
+    if (!t0) return;
+    const moveY = e.clientY - startY;
+    const moveX = e.clientX - startX;
+    if (!decided) {
+      if (Math.abs(moveY) < SLOP && Math.abs(moveX) < SLOP) return;
+      decided = true;
+      // Only a downward move, from the top of the scroll, is a dismiss. A
+      // sideways or upward move — or any move mid-scroll — belongs to the content.
+      dragging = moveY > 0 && Math.abs(moveY) > Math.abs(moveX) && box.scrollTop <= 0;
+      if (dragging) {
+        box.classList.add('dragging');
+        box.setPointerCapture?.(e.pointerId);
+      }
+    }
+    if (!dragging) return;
+    e.preventDefault();
+    dy = Math.max(0, moveY);
+    setY(dy);
+  }, { passive: false });
+
+  const end = e => {
+    if (!dragging) { t0 = 0; return; }
+    const velocity = dy / Math.max(1, e.timeStamp - t0);
+    box.releasePointerCapture?.(e.pointerId);
+    dragging = false; t0 = 0;
+    if (dy > box.offsetHeight * CLOSE_FRACTION || velocity > FLICK) {
+      // ride the gesture out rather than snapping shut under the finger
+      box.classList.remove('dragging');
+      box.style.transform = `translateY(${box.offsetHeight}px)`;
+      overlay.style.background = 'rgba(2, 6, 23, 0)';
+      setTimeout(close, 180);
+    } else {
+      reset(); // sprang back — the CSS transition does the animating
+    }
+  };
+  box.addEventListener('pointerup', end);
+  box.addEventListener('pointercancel', end);
 }
 
 export function toast(msg) {
