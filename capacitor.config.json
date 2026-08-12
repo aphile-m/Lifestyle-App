@@ -19,6 +19,12 @@
   },
   "server": {
     "url": "https://aphile-m.github.io/Lifestyle-App/",
-    "cleartext": false
+    "cleartext": false,
+    "allowNavigation": [
+      "login.microsoftonline.com",
+      "login.live.com",
+      "login.microsoft.com",
+      "www.strava.com"
+    ]
   }
 }

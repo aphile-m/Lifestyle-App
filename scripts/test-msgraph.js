@@ -16,11 +16,14 @@ const check = (name, ok, extra = '') => {
   const srv = spawn('node', ['serve.js'], { cwd: __dirname + '/..', stdio: 'ignore' });
   await new Promise(r => setTimeout(r, 700));
   const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH || undefined });
-  const page = await browser.newPage();
+  // one context, so a second page is a genuine second TAB: shared localStorage,
+  // its own sessionStorage — exactly the condition that broke sign-in
+  const ctx = await browser.newContext();
+  const page = await ctx.newPage();
 
   /* Fake OneDrive: path -> {body, etag}. Enforces if-match so the concurrency
      path is exercised for real rather than assumed. */
-  await page.addInitScript(() => {
+  await ctx.addInitScript(() => {
     window.__drive = new Map();
     window.__calls = [];
     const realFetch = window.fetch;
@@ -171,6 +174,67 @@ const check = (name, ok, extra = '') => {
   });
   check('pasting the tenant ID as the client ID is caught before the redirect',
     /same value/i.test(dupe), dupe.slice(0, 90));
+
+  /* ---- the redirect must survive coming back in a DIFFERENT tab ----
+     This is the bug that produced "state mismatch" on every attempt: the PKCE
+     verifier lived in sessionStorage, which a new tab does not share. */
+  let authUrl = '';
+  await ctx.route('https://login.microsoftonline.com/**/authorize*', route => {
+    authUrl = route.request().url();
+    // bounce straight back to our own origin WITHOUT a code, so the page is
+    // readable again and the stash is left intact for the second tab to use
+    route.fulfill({ status: 302, headers: { location: 'http://localhost:8123/?parked=1' } });
+  });
+  await page.evaluate(async () => {
+    const { settings } = await import('./js/store.js');
+    settings.save({ msTenant: 'contoso', msClientId: 'client-1', msSession: null });
+    const { msSignIn } = await import('./js/msgraph.js');
+    msSignIn().catch(() => {}); // navigation is aborted by the route above
+  });
+  await page.waitForTimeout(700);
+  const stash = await page.evaluate(() => ({
+    local: !!localStorage.getItem('ms_pkce'),
+    session: !!sessionStorage.getItem('ms_pkce'),
+  }));
+  check('sign-in reached Microsoft', /oauth2\/v2\.0\/authorize/.test(authUrl), authUrl.slice(0, 60));
+  check('the PKCE verifier is not confined to one tab', stash.local && !stash.session,
+    `localStorage ${stash.local}, sessionStorage ${stash.session}`);
+
+  const state = new URL(authUrl).searchParams.get('state');
+  const tab2 = await ctx.newPage();  // fresh sessionStorage, shared localStorage
+  await tab2.goto('http://localhost:8123/?code=ABC&state=' + encodeURIComponent(state));
+  await tab2.waitForTimeout(1200);
+  const signedInTab2 = await tab2.evaluate(() => {
+    const s = JSON.parse(localStorage.trainer_settings || '{}');
+    return !!(s.msSession && s.msSession.access_token);
+  });
+  check('a redirect landing in a different tab still completes', signedInTab2);
+  await tab2.close();
+  await ctx.unroute('https://login.microsoftonline.com/**/authorize*');
+
+  /* ---- and when it genuinely can't complete, say why ---- */
+  const messages = await page.evaluate(async () => {
+    const { handleMsRedirect } = await import('./js/msgraph.js');
+    const grab = async (setup, state) => {
+      setup();
+      history.replaceState(null, '', '/?code=ABC&state=' + encodeURIComponent(state));
+      let m = 'no error';
+      try { await handleMsRedirect(); } catch (e) { m = e.message; }
+      history.replaceState(null, '', '/');
+      return m;
+    };
+    const missing = await grab(() => localStorage.removeItem('ms_pkce'), 'ms.zzz');
+    const expired = await grab(() => localStorage.setItem('ms_pkce',
+      JSON.stringify({ verifier: 'v', state: 'ms.old', redirect: location.origin + '/', at: Date.now() - 20 * 60e3 })), 'ms.old');
+    const stale = await grab(() => localStorage.setItem('ms_pkce',
+      JSON.stringify({ verifier: 'v', state: 'ms.aaa', redirect: location.origin + '/', at: Date.now() })), 'ms.bbb');
+    return { missing, expired, stale };
+  });
+  check('missing verifier explains where to restart', /started somewhere else/i.test(messages.missing), messages.missing.slice(0, 70));
+  check('an expired sign-in says so', /expired/i.test(messages.expired), messages.expired.slice(0, 70));
+  check('a late older attempt says so', /older sign-in/i.test(messages.stale), messages.stale.slice(0, 70));
+  check('none of them say "state mismatch"',
+    ![messages.missing, messages.expired, messages.stale].some(m => /state mismatch/i.test(m)));
 
   /* ---- Strava's redirect handler must ignore Microsoft's ---- */
   const strava = await page.evaluate(async () => {

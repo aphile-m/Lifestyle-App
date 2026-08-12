@@ -29,6 +29,8 @@ const SCOPES = 'openid profile offline_access User.Read Files.ReadWrite.AppFolde
    otherwise grab whichever code arrived, so ours is tagged in `state` and each
    handler ignores redirects that aren't its own. */
 const STATE_PREFIX = 'ms.';
+const PKCE_KEY = 'ms_pkce';
+const PKCE_TTL = 15 * 60e3; // a sign-in that takes longer than this has been abandoned
 
 export function msConfig() {
   const s = settings.load();
@@ -71,9 +73,14 @@ export async function msSignIn() {
   }
   const { verifier, challenge } = await pkce();
   const state = STATE_PREFIX + b64url(crypto.getRandomValues(new Uint8Array(9)));
-  // sessionStorage, not localStorage: the verifier is single-use and must not
-  // outlive the tab that started the sign-in.
-  sessionStorage.setItem('ms_pkce', JSON.stringify({ verifier, state }));
+  /* localStorage, NOT sessionStorage. sessionStorage is per-tab, and Microsoft's
+     login frequently comes back in a DIFFERENT tab than the one that started it
+     — which left no verifier to find and produced a bogus "state mismatch" on
+     every attempt. The verifier is single-use and short-lived (see PKCE_TTL),
+     and is deleted the moment it's redeemed.
+     redirect_uri is stashed too: the token exchange must present the exact URI
+     used at /authorize, and the two apps share this origin. */
+  localStorage.setItem(PKCE_KEY, JSON.stringify({ verifier, state, redirect: redirectUri(), at: Date.now() }));
   const q = new URLSearchParams({
     client_id: clientId,
     response_type: 'code',
@@ -102,17 +109,29 @@ export async function handleMsRedirect() {
   if (!code || !state.startsWith(STATE_PREFIX)) return false;
 
   let stash = null;
-  try { stash = JSON.parse(sessionStorage.getItem('ms_pkce') || 'null'); } catch {}
+  try { stash = JSON.parse(localStorage.getItem(PKCE_KEY) || 'null'); } catch {}
   history.replaceState(null, '', location.pathname); // codes are single-use
-  sessionStorage.removeItem('ms_pkce');
-  if (!stash || stash.state !== state) throw new Error('Sign-in state mismatch — start again.');
+  localStorage.removeItem(PKCE_KEY);
+
+  /* Say WHICH thing went wrong. "State mismatch" for all three of these sent
+     the last debugging session in circles. */
+  if (!stash) {
+    throw new Error('This sign-in started somewhere else — in another tab, or in the app rather than the browser. ' +
+      'Open the app and tap Sign in with Microsoft there, and finish in the same place.');
+  }
+  if (Date.now() - (stash.at || 0) > PKCE_TTL) {
+    throw new Error('That sign-in took too long and expired. Tap Sign in with Microsoft again.');
+  }
+  if (stash.state !== state) {
+    throw new Error('This looks like an older sign-in attempt finishing late. Tap Sign in with Microsoft once, and let it run.');
+  }
 
   const { tenant, clientId } = msConfig();
   const d = await tokenRequest(tenant, {
     client_id: clientId,
     grant_type: 'authorization_code',
     code,
-    redirect_uri: redirectUri(),
+    redirect_uri: stash.redirect || redirectUri(),
     code_verifier: stash.verifier,
   });
   await saveSession(d);
