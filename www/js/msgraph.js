@@ -60,6 +60,15 @@ async function pkce() {
 export async function msSignIn() {
   const { tenant, clientId } = msConfig();
   if (!clientId) throw new Error('Add the application (client) ID first.');
+  /* Entra's Overview blade shows the tenant and client IDs side by side and it
+     is easy to copy the same one twice. Left alone, that fails out on
+     Microsoft's own page with AADSTS700016 ("application not found in
+     directory") naming the same GUID twice, which reads like the registration
+     is broken rather than mistyped. Catch it here instead. */
+  if (clientId && tenant && clientId.toLowerCase() === tenant.toLowerCase()) {
+    throw new Error('The client ID and tenant ID are the same value. On the app registration Overview, ' +
+      'copy "Application (client) ID" — it is a different GUID from "Directory (tenant) ID".');
+  }
   const { verifier, challenge } = await pkce();
   const state = STATE_PREFIX + b64url(crypto.getRandomValues(new Uint8Array(9)));
   // sessionStorage, not localStorage: the verifier is single-use and must not

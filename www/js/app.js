@@ -18,8 +18,8 @@ import { exerciseAnim, exerciseKey } from './exercise-art.js';
 import { sessionLoad, loadBand, WEEKLY_LOAD_TARGET } from './load.js';
 
 const JOURNAL_TAGS = ['Late caffeine', 'Alcohol', 'Late meal', 'Screens in bed', 'Stretching', 'Cold shower', 'Reading in bed', 'Travel'];
-const WEB_VERSION = 63; // bump together with CACHE in sw.js AND the ship stamp below
-const WEB_SHIPPED = '11 Aug 2026, 15:10 SAST';
+const WEB_VERSION = 64; // bump together with CACHE in sw.js AND the ship stamp below
+const WEB_SHIPPED = '12 Aug 2026, 08:40 SAST';
 
 const screens = { today, coach, train, fuel, me };
 let chatHistory = []; // this session's Vic conversation (persisted turns go to IndexedDB)
@@ -2344,8 +2344,12 @@ function cloudSheet() {
     el('p', { class: 'muted', style: 'margin-bottom:12px' },
       'Your logs live in a folder that belongs to this app inside your OneDrive. ' +
       'The app asks for the app-folder permission only, so it cannot read anything else in your Microsoft account.'),
-    el('div', { class: 'field' }, el('label', {}, 'Directory (tenant) ID'), tenant),
-    el('div', { class: 'field' }, el('label', {}, 'Application (client) ID'), client),
+    el('div', { class: 'field' }, el('label', {}, 'Directory (tenant) ID'), tenant,
+      el('p', { class: 'muted', style: 'font-size:12px;margin-top:4px' },
+        'Your organisation. Same for every app you register.')),
+    el('div', { class: 'field' }, el('label', {}, 'Application (client) ID'), client,
+      el('p', { class: 'muted', style: 'font-size:12px;margin-top:4px' },
+        'This app specifically — a DIFFERENT GUID, listed right below the tenant ID on the registration’s Overview page.')),
     el('div', { class: 'chips' },
       el('button', {
         class: 'btn', onclick: async () => {

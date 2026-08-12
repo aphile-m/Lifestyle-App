@@ -158,6 +158,20 @@ const check = (name, ok, extra = '') => {
   check('data lands in the app folder only',
     /trainer_weights\.json/.test(scopes) && !/\/drive\/root/.test(scopes), scopes.slice(-120));
 
+  /* ---- the duplicated-GUID trap is caught before leaving the app ---- */
+  const dupe = await page.evaluate(async () => {
+    const { settings } = await import('./js/store.js');
+    const { msSignIn } = await import('./js/msgraph.js');
+    const keep = settings.load();
+    settings.save({ msTenant: 'SAME-GUID', msClientId: 'same-guid' }); // case-insensitive
+    let msg = 'no error';
+    try { await msSignIn(); } catch (e) { msg = e.message; }
+    settings.save({ msTenant: keep.msTenant, msClientId: keep.msClientId });
+    return msg;
+  });
+  check('pasting the tenant ID as the client ID is caught before the redirect',
+    /same value/i.test(dupe), dupe.slice(0, 90));
+
   /* ---- Strava's redirect handler must ignore Microsoft's ---- */
   const strava = await page.evaluate(async () => {
     const { handleStravaRedirect } = await import('./js/strava.js');
