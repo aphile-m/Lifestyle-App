@@ -236,6 +236,41 @@ const check = (name, ok, extra = '') => {
   check('none of them say "state mismatch"',
     ![messages.missing, messages.expired, messages.stale].some(m => /state mismatch/i.test(m)));
 
+  /* ---- the Strava proxy must be called at an ABSOLUTE Supabase URL ----
+     The migration changed syncConfig() to return the Microsoft account, but
+     strava.js still destructured {url, anonKey} from it. url became undefined,
+     so the POST went to a RELATIVE path on GitHub Pages, which answers POST
+     with 405. Assert where the request actually goes. */
+  const proxy = await page.evaluate(async () => {
+    const calls = [];
+    const realFetch = window.fetch;
+    window.fetch = (input, init = {}) => {
+      const url = typeof input === 'string' ? input : input.url;
+      if (url.includes('strava-proxy')) {
+        calls.push({ url, method: (init.method || 'GET').toUpperCase(), headers: init.headers || {} });
+        return Promise.resolve(new Response(JSON.stringify({ access_token: 'x', expires_at: 9e12 }),
+          { status: 200, headers: { 'content-type': 'application/json' } }));
+      }
+      return realFetch(input, init);
+    };
+    const { settings } = await import('./js/store.js');
+    // an EXPIRED token, so accessToken() takes the refresh path and hits the proxy
+    settings.save({ stravaClientId: '1', stravaClientSecret: 's',
+      stravaTokens: { access_token: 'old', refresh_token: 'r', expires_at: 0 } });
+    const { importActivities } = await import('./js/strava.js');
+    try { await importActivities(); } catch (e) { /* the fake response is enough */ }
+    window.fetch = realFetch;
+    return calls[0] || null;
+  });
+  check('the Strava proxy is called at all', !!proxy, proxy ? proxy.url : 'no call made');
+  if (proxy) {
+    check('proxy URL is absolute, not a relative GitHub Pages path',
+      /^https:\/\/[a-z0-9]+\.supabase\.co\/functions\/v1\/strava-proxy$/.test(proxy.url), proxy.url);
+    check('proxy is called with POST', proxy.method === 'POST', proxy.method);
+    check('proxy is authorized with the Microsoft token',
+      String(proxy.headers.authorization || '').startsWith('Bearer '), JSON.stringify(proxy.headers.authorization || null));
+  }
+
   /* ---- Strava's redirect handler must ignore Microsoft's ---- */
   const strava = await page.evaluate(async () => {
     const { handleStravaRedirect } = await import('./js/strava.js');

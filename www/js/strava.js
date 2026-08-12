@@ -5,7 +5,18 @@
    secret in the Strava sheet (stored on-device only). */
 
 import { settings, logs } from './store.js';
-import { syncConfig, signedIn, accessToken as supabaseToken, pushProfile } from './sync.js';
+import { signedIn, accessToken as cloudToken, pushProfile } from './sync.js';
+
+/* The ONLY surviving piece of Supabase. Storage and auth moved to Microsoft 365,
+   but browsers still can't call strava.com directly (no CORS headers) and M365
+   has no equivalent of an edge function, so this relay stays. The caller is
+   authenticated by its MICROSOFT token, which the function validates against
+   Graph /me — see supabase/functions/strava-proxy/index.ts.
+   These used to come from syncConfig(); after the migration that returns the
+   signed-in Microsoft account instead, which silently made the URL `undefined`
+   and posted to a relative path on GitHub Pages — answered with a 405. */
+const PROXY_URL = 'https://uaqvqvrflzxulixdrmna.supabase.co';
+const PROXY_KEY = 'sb_publishable_o1xfAQwaiVwuPkZOWgZfFw_2AsUlCOz';
 
 const cfg = () => {
   const s = settings.load();
@@ -16,13 +27,12 @@ export const stravaConnected = () => !!cfg().tokens;
 
 async function proxy(body) {
   if (!signedIn()) throw new Error('Sign in to Cloud sync first (Me → Settings) — Strava routes through your secure proxy.');
-  const { url, anonKey } = syncConfig();
-  const res = await fetch(`${url}/functions/v1/strava-proxy`, {
+  const res = await fetch(`${PROXY_URL}/functions/v1/strava-proxy`, {
     method: 'POST',
     headers: {
       'content-type': 'application/json',
-      apikey: anonKey,
-      authorization: `Bearer ${await supabaseToken()}`, // fresh JWT — auto-refreshed
+      apikey: PROXY_KEY,
+      authorization: `Bearer ${await cloudToken()}`, // Microsoft token, auto-refreshed
     },
     body: JSON.stringify(body),
   });
